@@ -56,10 +56,14 @@ export async function POST(request: NextRequest) {
               user_id: userId,
               messages: updatedMessages,
               updated_at: new Date().toISOString()
+            }, {
+              onConflict: 'exploration_id,user_id'
             })
 
           if (error) {
             console.error('Error updating chat:', error)
+          } else {
+            console.log('Chat saved successfully with', updatedMessages.length, 'messages')
           }
           
           controller.close()

@@ -181,21 +181,27 @@ export function DocumentView({ explorationId, title }: DocumentViewProps) {
         (payload) => {
           console.log('Received real-time comment update:', payload)
           const newComment = payload.new as Comment
-          setBlocks((current) => 
-            current.map(block => {
-              if (block.id === newComment.block_id) {
-                // Check if comment already exists to prevent duplicates
-                if (block.comments?.some(c => c.id === newComment.id)) {
-                  return block
+          
+          // Check if this comment belongs to a block in our current exploration
+          const belongsToCurrentExploration = blocks.some(block => block.id === newComment.block_id)
+          
+          if (belongsToCurrentExploration) {
+            setBlocks((current) => 
+              current.map(block => {
+                if (block.id === newComment.block_id) {
+                  // Check if comment already exists to prevent duplicates
+                  if (block.comments?.some(c => c.id === newComment.id)) {
+                    return block
+                  }
+                  return {
+                    ...block,
+                    comments: [...(block.comments || []), newComment]
+                  }
                 }
-                return {
-                  ...block,
-                  comments: [...(block.comments || []), newComment]
-                }
-              }
-              return block
-            })
-          )
+                return block
+              })
+            )
+          }
         }
       )
       .subscribe((status) => {
@@ -246,8 +252,9 @@ export function DocumentView({ explorationId, title }: DocumentViewProps) {
   const handleComment = async (blockId: string) => {
     if (!commentText.trim() || !userId) return
 
+    const tempId = `temp-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`
     const tempComment: Comment = {
-      id: `temp-${Date.now()}`,
+      id: tempId,
       block_id: blockId,
       author_id: userId,
       content: commentText,
@@ -272,44 +279,60 @@ export function DocumentView({ explorationId, title }: DocumentViewProps) {
     setCommentText('')
     setCommenting(null)
 
-    // Save to database
-    const { data, error } = await supabase
-      .from('comments')
-      .insert({
-        block_id: blockId,
-        author_id: userId,
-        content: commentContent,
-      })
-      .select()
-      .single()
-
-    if (error) {
-      console.error('Error posting comment:', error)
-      // Remove the optimistic update on error
-      setBlocks((current) => 
-        current.map(block => {
-          if (block.id === blockId) {
-            return {
-              ...block,
-              comments: block.comments?.filter(c => c.id !== tempComment.id) || []
-            }
-          }
-          return block
+    try {
+      // Save to database
+      const { data, error } = await supabase
+        .from('comments')
+        .insert({
+          block_id: blockId,
+          author_id: userId,
+          content: commentContent,
         })
-      )
-      return
-    }
+        .select()
+        .single()
 
-    // Replace temp comment with real one
-    if (data) {
+      if (error) {
+        console.error('Error posting comment:', error)
+        // Remove the optimistic update on error
+        setBlocks((current) => 
+          current.map(block => {
+            if (block.id === blockId) {
+              return {
+                ...block,
+                comments: block.comments?.filter(c => c.id !== tempId) || []
+              }
+            }
+            return block
+          })
+        )
+        return
+      }
+
+      // Replace temp comment with real one from database
+      if (data) {
+        setBlocks((current) => 
+          current.map(block => {
+            if (block.id === blockId) {
+              return {
+                ...block,
+                comments: block.comments?.map(c => 
+                  c.id === tempId ? data : c
+                ) || []
+              }
+            }
+            return block
+          })
+        )
+      }
+    } catch (error) {
+      console.error('Unexpected error posting comment:', error)
+      // Remove the optimistic update on unexpected error
       setBlocks((current) => 
         current.map(block => {
           if (block.id === blockId) {
             return {
               ...block,
-              comments: block.comments?.map(c => 
-                c.id === tempComment.id ? data : c
-              ) || []
+              comments: block.comments?.filter(c => c.id !== tempId) || []
             }
           }
           return block

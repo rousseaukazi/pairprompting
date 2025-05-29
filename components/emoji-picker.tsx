@@ -56,12 +56,12 @@ export function EmojiPicker({ currentEmoji = '😀', onEmojiSelect, size = 'md' 
         <>
           {/* Backdrop */}
           <div 
-            className="fixed inset-0 z-40" 
+            className="fixed inset-0 z-[9998]" 
             onClick={() => setIsOpen(false)}
           />
           
           {/* Picker */}
-          <div className="absolute top-full mt-2 left-0 z-50 bg-white border rounded-lg shadow-lg p-4 w-80 max-h-64 overflow-y-auto">
+          <div className="absolute top-full mt-2 right-0 z-[9999] bg-white border rounded-lg shadow-xl p-4 w-80 max-h-64 overflow-y-auto">
             <div className="flex items-center gap-2 mb-3 pb-3 border-b">
               <Smile className="w-4 h-4" />
               <span className="text-sm font-medium">Choose your emoji</span>
