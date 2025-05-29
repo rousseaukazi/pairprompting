@@ -63,23 +63,60 @@ export function ChatPanel({ explorationId, onHighlight }: ChatPanelProps) {
     loadChatHistory()
   }, [explorationId])
 
-  // Global keyboard listener for Cmd+Enter
+  // Simple selection detector - only detects, doesn't interfere
+  useEffect(() => {
+    const handleSelectionChange = () => {
+      const selection = window.getSelection()
+      const text = selection?.toString().trim()
+      
+      if (text && text.length > 0) {
+        // Check if selection is within an assistant message
+        const range = selection?.getRangeAt(0)
+        if (range) {
+          const container = range.commonAncestorContainer
+          const messageElement = container.nodeType === Node.TEXT_NODE 
+            ? container.parentElement?.closest('[data-message-role="assistant"]')
+            : (container as Element)?.closest('[data-message-role="assistant"]')
+          
+          if (messageElement) {
+            setSelectedText(text)
+          } else {
+            setSelectedText('')
+          }
+        }
+      } else {
+        setSelectedText('')
+      }
+    }
+
+    // Use a debounced version to avoid excessive calls
+    let timeoutId: NodeJS.Timeout
+    const debouncedHandler = () => {
+      clearTimeout(timeoutId)
+      timeoutId = setTimeout(handleSelectionChange, 100)
+    }
+
+    document.addEventListener('selectionchange', debouncedHandler)
+    return () => {
+      document.removeEventListener('selectionchange', debouncedHandler)
+      clearTimeout(timeoutId)
+    }
+  }, [])
+
+  // Global keyboard listener for Cmd+Enter - only when text is selected
   useEffect(() => {
     const handleGlobalKeyDown = (e: KeyboardEvent) => {
-      if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {
+      if (e.key === 'Enter' && (e.metaKey || e.ctrlKey) && selectedText && onHighlight) {
         // Don't interfere if user is typing in textarea
         if (document.activeElement === textareaRef.current) {
           return
         }
         
         e.preventDefault()
-        
-        if (selectedText && onHighlight) {
-          onHighlight(selectedText)
-          setSelectedText('')
-          window.getSelection()?.removeAllRanges()
-          toast.success('Block pushed to document!')
-        }
+        onHighlight(selectedText)
+        setSelectedText('')
+        window.getSelection()?.removeAllRanges()
+        toast.success('Block pushed to document!')
       }
     }
 
@@ -164,36 +201,6 @@ export function ChatPanel({ explorationId, onHighlight }: ChatPanelProps) {
     }
   }
 
-  // Improved selection change handler
-  useEffect(() => {
-    const handleSelectionChange = () => {
-      const selection = window.getSelection()
-      const text = selection?.toString().trim()
-      
-      if (text && text.length > 0) {
-        // Check if selection is within an assistant message
-        const range = selection?.getRangeAt(0)
-        const container = range?.commonAncestorContainer
-        const messageElement = container?.nodeType === Node.TEXT_NODE 
-          ? container.parentElement?.closest('[data-message-role="assistant"]')
-          : (container as Element)?.closest('[data-message-role="assistant"]')
-        
-        if (messageElement) {
-          setSelectedText(text)
-        } else {
-          // Clear selection if it's not in an assistant message
-          setSelectedText('')
-        }
-      } else {
-        // Clear when no text is selected
-        setSelectedText('')
-      }
-    }
-
-    document.addEventListener('selectionchange', handleSelectionChange)
-    return () => document.removeEventListener('selectionchange', handleSelectionChange)
-  }, [])
-
   const handlePushBlock = () => {
     if (selectedText && onHighlight) {
       onHighlight(selectedText)
@@ -207,17 +214,6 @@ export function ChatPanel({ explorationId, onHighlight }: ChatPanelProps) {
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault()
       handleSend()
-    }
-  }
-
-  // Clear selection when clicking outside assistant messages
-  const handleChatAreaClick = (e: React.MouseEvent) => {
-    const target = e.target as Element
-    
-    // Only clear if clicking on empty space, not on messages or UI elements
-    if (e.target === e.currentTarget) {
-      setSelectedText('')
-      window.getSelection()?.removeAllRanges()
     }
   }
 
@@ -236,10 +232,7 @@ export function ChatPanel({ explorationId, onHighlight }: ChatPanelProps) {
 
   return (
     <div className="flex flex-col h-full bg-white rounded-lg border">
-      <div 
-        className="flex-1 overflow-y-auto p-4 space-y-4"
-        onClick={handleChatAreaClick}
-      >
+      <div className="flex-1 overflow-y-auto p-4 space-y-4">
         {messages.length === 0 ? (
           <div className="flex items-center justify-center h-full text-gray-500">
             <p>Start a conversation with AI to explore topics...</p>
@@ -254,7 +247,7 @@ export function ChatPanel({ explorationId, onHighlight }: ChatPanelProps) {
                 className={`max-w-[80%] rounded-lg p-3 ${
                   message.role === 'user'
                     ? 'bg-primary text-primary-foreground'
-                    : 'bg-gray-100 text-gray-900 select-text cursor-text'
+                    : 'bg-gray-100 text-gray-900'
                 }`}
                 data-message-role={message.role}
               >
