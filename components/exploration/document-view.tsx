@@ -182,12 +182,12 @@ export function DocumentView({ explorationId, title }: DocumentViewProps) {
           console.log('Received real-time comment update:', payload)
           const newComment = payload.new as Comment
           
-          // Check if this comment belongs to a block in our current exploration
-          const belongsToCurrentExploration = blocks.some(block => block.id === newComment.block_id)
-          
-          if (belongsToCurrentExploration) {
-            setBlocks((current) => 
-              current.map(block => {
+          // More efficient check - update the blocks state directly if block exists
+          setBlocks((current) => {
+            const blockExists = current.some(block => block.id === newComment.block_id)
+            
+            if (blockExists) {
+              return current.map(block => {
                 if (block.id === newComment.block_id) {
                   // Check if comment already exists to prevent duplicates
                   if (block.comments?.some(c => c.id === newComment.id)) {
@@ -200,8 +200,10 @@ export function DocumentView({ explorationId, title }: DocumentViewProps) {
                 }
                 return block
               })
-            )
-          }
+            }
+            
+            return current
+          })
         }
       )
       .subscribe((status) => {
@@ -380,7 +382,11 @@ export function DocumentView({ explorationId, title }: DocumentViewProps) {
               >
                 <div className="flex items-start justify-between mb-2">
                   <div className="flex items-center gap-2 text-sm text-gray-600">
-                    <UserAvatar user={users[block.author_id] || null} size="sm" />
+                    <UserAvatar 
+                      user={users[block.author_id] || null} 
+                      size="sm" 
+                      isLoading={!users[block.author_id]}
+                    />
                     <span>•</span>
                     <span>{new Date(block.created_at).toLocaleString()}</span>
                   </div>
@@ -405,7 +411,11 @@ export function DocumentView({ explorationId, title }: DocumentViewProps) {
                     {block.comments.map((comment) => (
                       <div key={comment.id} className="bg-gray-50 rounded p-3">
                         <div className="flex items-center gap-2 mb-2">
-                          <UserAvatar user={users[comment.author_id] || null} size="sm" />
+                          <UserAvatar 
+                            user={users[comment.author_id] || null} 
+                            size="sm" 
+                            isLoading={!users[comment.author_id]}
+                          />
                           <span className="text-xs text-gray-500">
                             {new Date(comment.created_at).toLocaleString()}
                           </span>

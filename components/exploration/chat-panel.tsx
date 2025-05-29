@@ -218,8 +218,22 @@ export function ChatPanel({ explorationId, onHighlight }: ChatPanelProps) {
                 onMouseUp={message.role === 'assistant' ? handleTextSelection : undefined}
               >
                 {message.role === 'assistant' ? (
-                  <div className="prose prose-sm max-w-none prose-headings:text-gray-900 prose-p:text-gray-900 prose-strong:text-gray-900 prose-em:text-gray-700 prose-code:text-gray-800 prose-code:bg-gray-200 prose-code:px-1 prose-code:rounded prose-pre:bg-gray-800 prose-pre:text-gray-100">
-                    <ReactMarkdown remarkPlugins={[remarkGfm]}>
+                  <div className="prose prose-sm max-w-none prose-headings:text-gray-900 prose-p:text-gray-900 prose-p:mb-3 prose-p:leading-relaxed prose-strong:text-gray-900 prose-em:text-gray-700 prose-code:text-gray-800 prose-code:bg-gray-200 prose-code:px-1 prose-code:rounded prose-pre:bg-gray-800 prose-pre:text-gray-100 prose-ul:mb-3 prose-ol:mb-3 prose-li:mb-1 prose-blockquote:border-l-4 prose-blockquote:border-gray-300 prose-blockquote:pl-4 prose-blockquote:italic prose-hr:my-4">
+                    <ReactMarkdown 
+                      remarkPlugins={[remarkGfm]}
+                      components={{
+                        p: ({ children }) => <p className="mb-3 last:mb-0">{children}</p>,
+                        br: () => <br className="mb-2" />,
+                        ul: ({ children }) => <ul className="mb-3 space-y-1">{children}</ul>,
+                        ol: ({ children }) => <ol className="mb-3 space-y-1">{children}</ol>,
+                        li: ({ children }) => <li className="leading-relaxed">{children}</li>,
+                        h1: ({ children }) => <h1 className="mb-4 mt-6 first:mt-0">{children}</h1>,
+                        h2: ({ children }) => <h2 className="mb-3 mt-5 first:mt-0">{children}</h2>,
+                        h3: ({ children }) => <h3 className="mb-2 mt-4 first:mt-0">{children}</h3>,
+                        blockquote: ({ children }) => <blockquote className="my-4 border-l-4 border-gray-300 pl-4 italic">{children}</blockquote>,
+                        hr: () => <hr className="my-6 border-gray-300" />
+                      }}
+                    >
                       {message.content}
                     </ReactMarkdown>
                   </div>
