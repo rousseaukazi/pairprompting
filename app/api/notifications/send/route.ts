@@ -6,10 +6,17 @@ import { sendBulkNotificationEmails, NotificationEmailData } from '@/lib/email'
 
 export async function POST(request: NextRequest) {
   try {
-    const { userId } = await auth()
+    // Check for internal API key (for server-to-server calls)
+    const authHeader = request.headers.get('authorization')
+    const isInternalCall = authHeader === `Bearer ${process.env.INTERNAL_API_KEY || 'internal'}`
     
-    if (!userId) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+    // If not an internal call, require user authentication
+    if (!isInternalCall) {
+      const { userId } = await auth()
+      
+      if (!userId) {
+        return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+      }
     }
 
     const { notificationIds } = await request.json()
