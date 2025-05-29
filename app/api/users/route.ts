@@ -23,7 +23,7 @@ export async function POST(request: NextRequest) {
     // Get emoji avatars from user preferences
     const { data: preferences, error } = await supabaseAdmin
       .from('user_preferences')
-      .select('user_id, emoji_avatar')
+      .select('user_id, emoji_avatar, background_color')
       .in('user_id', userIds)
 
     if (error) {
@@ -39,9 +39,10 @@ export async function POST(request: NextRequest) {
         id: userId,
         fullName: clerkUser?.fullName || 'Unknown User',
         emojiAvatar: userPrefs?.emoji_avatar || '😀',
+        backgroundColor: userPrefs?.background_color || 'from-blue-50 to-purple-50',
       }
       return acc
-    }, {} as Record<string, { id: string; fullName: string; emojiAvatar: string }>)
+    }, {} as Record<string, { id: string; fullName: string; emojiAvatar: string; backgroundColor: string }>)
 
     return NextResponse.json({ users })
   } catch (error) {

@@ -2,11 +2,11 @@
 
 import { useState, useEffect, useRef } from 'react'
 import { Button } from '@/components/ui/button'
-import { MessageSquare } from 'lucide-react'
+import { MessageSquare, Settings } from 'lucide-react'
 import { supabase } from '@/lib/supabase'
 import { useAuth } from '@clerk/nextjs'
 import { UserAvatar } from '@/components/user-avatar'
-import { EmojiPicker } from '@/components/emoji-picker'
+import { ProfileModal } from '@/components/profile-modal'
 import type { Block, Comment } from '@/lib/supabase'
 
 type BlockWithComments = Block & {
@@ -30,6 +30,7 @@ export function DocumentView({ explorationId, title }: DocumentViewProps) {
   const [newBlockIds, setNewBlockIds] = useState<Set<string>>(new Set())
   const [users, setUsers] = useState<Record<string, UserInfo>>({})
   const [currentUserEmoji, setCurrentUserEmoji] = useState('😀')
+  const [showProfileModal, setShowProfileModal] = useState(false)
   const blocksEndRef = useRef<HTMLDivElement>(null)
   const { userId } = useAuth()
 
@@ -51,30 +52,6 @@ export function DocumentView({ explorationId, title }: DocumentViewProps) {
       fetchCurrentUserEmoji()
     }
   }, [userId])
-
-  // Update user emoji
-  const handleEmojiChange = async (emoji: string) => {
-    try {
-      const response = await fetch('/api/user-preferences', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({ emoji_avatar: emoji }),
-      })
-
-      if (response.ok) {
-        setCurrentUserEmoji(emoji)
-        // Refresh users to update current user's avatar in existing blocks/comments
-        const userIds = Object.keys(users)
-        if (userIds.length > 0) {
-          fetchUsers(userIds)
-        }
-      }
-    } catch (error) {
-      console.error('Error updating emoji:', error)
-    }
-  }
 
   // Fetch user information
   const fetchUsers = async (userIds: string[]) => {
@@ -325,6 +302,49 @@ export function DocumentView({ explorationId, title }: DocumentViewProps) {
             return block
           })
         )
+
+        // Create notifications for other members of the exploration
+        try {
+          // Get all members except the current user
+          const { data: members } = await supabase
+            .from('memberships')
+            .select('user_id')
+            .eq('exploration_id', explorationId)
+            .neq('user_id', userId)
+
+          if (members && members.length > 0) {
+            // Create notifications
+            const { data: notifications, error: notifError } = await supabase
+              .from('notifications')
+              .insert(
+                members.map(member => ({
+                  user_id: member.user_id,
+                  exploration_id: explorationId,
+                  block_id: blockId,
+                  type: 'new_comment',
+                  read: false,
+                }))
+              )
+              .select('id')
+
+            if (!notifError && notifications && notifications.length > 0) {
+              // Trigger email notifications asynchronously
+              const notificationIds = notifications.map(n => n.id)
+              
+              fetch('/api/notifications/send', {
+                method: 'POST',
+                headers: {
+                  'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({ notificationIds }),
+              }).catch(error => {
+                console.error('Failed to trigger comment email notifications:', error)
+              })
+            }
+          }
+        } catch (error) {
+          console.error('Error creating comment notifications:', error)
+        }
       }
     } catch (error) {
       console.error('Unexpected error posting comment:', error)
@@ -356,12 +376,15 @@ export function DocumentView({ explorationId, title }: DocumentViewProps) {
         <div className="flex items-center justify-between mb-6">
           <h1 className="text-2xl font-bold">{title}</h1>
           <div className="flex items-center gap-2">
-            <span className="text-sm text-gray-600">Your avatar:</span>
-            <EmojiPicker
-              currentEmoji={currentUserEmoji}
-              onEmojiSelect={handleEmojiChange}
+            <Button
+              variant="outline"
               size="sm"
-            />
+              onClick={() => setShowProfileModal(true)}
+              className="gap-2"
+            >
+              <Settings className="w-4 h-4" />
+              Profile
+            </Button>
           </div>
         </div>
         
@@ -464,6 +487,11 @@ export function DocumentView({ explorationId, title }: DocumentViewProps) {
           </div>
         )}
       </div>
+      
+      <ProfileModal
+        isOpen={showProfileModal}
+        onClose={() => setShowProfileModal(false)}
+      />
     </div>
   )
 } 

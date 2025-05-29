@@ -4,7 +4,7 @@ import { useState } from 'react'
 import { DocumentView } from '@/components/exploration/document-view'
 import { ChatPanel } from '@/components/exploration/chat-panel'
 import { Button } from '@/components/ui/button'
-import { Share2, Users, Menu } from 'lucide-react'
+import { Share2, Menu } from 'lucide-react'
 import { toast } from 'sonner'
 import type { Exploration } from '@/lib/supabase'
 
@@ -101,10 +101,6 @@ export function ExplorationClient({ exploration, userId }: ExplorationClientProp
               <Share2 className="w-4 h-4" />
               {sharingLoading ? 'Generating...' : 'Share'}
             </Button>
-            <div className="flex items-center gap-2 text-sm text-gray-600">
-              <Users className="w-4 h-4" />
-              <span>2 online</span>
-            </div>
           </div>
         </div>
       </header>

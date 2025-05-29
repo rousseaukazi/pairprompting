@@ -66,11 +66,11 @@ export function ChatPanel({ explorationId, onHighlight }: ChatPanelProps) {
   useEffect(() => {
     const handleGlobalKeyDown = (e: KeyboardEvent) => {
       if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {
+        e.preventDefault()
         const selection = window.getSelection()
         const text = selection?.toString().trim()
         
         if (text && onHighlight) {
-          e.preventDefault()
           onHighlight(text)
           selection?.removeAllRanges()
           setSelectedText('')
@@ -79,8 +79,8 @@ export function ChatPanel({ explorationId, onHighlight }: ChatPanelProps) {
       }
     }
 
-    document.addEventListener('keydown', handleGlobalKeyDown)
-    return () => document.removeEventListener('keydown', handleGlobalKeyDown)
+    document.addEventListener('keydown', handleGlobalKeyDown, { capture: true })
+    return () => document.removeEventListener('keydown', handleGlobalKeyDown, { capture: true })
   }, [onHighlight])
 
   const handleSend = async () => {
@@ -160,11 +160,19 @@ export function ChatPanel({ explorationId, onHighlight }: ChatPanelProps) {
     }
   }
 
-  const handleTextSelection = () => {
-    const selection = window.getSelection()
-    if (selection && selection.toString().trim()) {
-      setSelectedText(selection.toString())
-    }
+  // Handle text selection with improved reliability
+  const handleTextSelection = (e: React.MouseEvent) => {
+    // Small delay to ensure selection is complete
+    setTimeout(() => {
+      const selection = window.getSelection()
+      const text = selection?.toString().trim()
+      
+      if (text && text.length > 0) {
+        setSelectedText(text)
+      } else if (!text) {
+        setSelectedText('')
+      }
+    }, 10)
   }
 
   const handlePushBlock = () => {
@@ -216,9 +224,10 @@ export function ChatPanel({ explorationId, onHighlight }: ChatPanelProps) {
                     : 'bg-gray-100 text-gray-900 select-text'
                 }`}
                 onMouseUp={message.role === 'assistant' ? handleTextSelection : undefined}
+                onMouseDown={message.role === 'assistant' ? () => setSelectedText('') : undefined}
               >
                 {message.role === 'assistant' ? (
-                  <div className="prose prose-sm max-w-none prose-headings:text-gray-900 prose-p:text-gray-900 prose-p:mb-3 prose-p:leading-relaxed prose-strong:text-gray-900 prose-em:text-gray-700 prose-code:text-gray-800 prose-code:bg-gray-200 prose-code:px-1 prose-code:rounded prose-pre:bg-gray-800 prose-pre:text-gray-100 prose-ul:mb-3 prose-ol:mb-3 prose-li:mb-1 prose-blockquote:border-l-4 prose-blockquote:border-gray-300 prose-blockquote:pl-4 prose-blockquote:italic prose-hr:my-4">
+                  <div className="prose prose-sm max-w-none prose-headings:text-gray-900 prose-p:text-gray-900 prose-p:mb-3 prose-p:leading-relaxed prose-strong:text-gray-900 prose-em:text-gray-700 prose-code:text-gray-800 prose-code:bg-gray-200 prose-code:px-1 prose-code:rounded prose-pre:bg-gray-800 prose-pre:text-gray-100 prose-ul:mb-3 prose-ol:mb-3 prose-li:mb-1 prose-blockquote:border-l-4 prose-blockquote:border-gray-300 prose-blockquote:pl-4 prose-blockquote:italic prose-hr:my-4 prose-table:my-4 prose-thead:bg-gray-50 prose-th:border prose-th:border-gray-300 prose-th:px-3 prose-th:py-2 prose-th:font-semibold prose-td:border prose-td:border-gray-300 prose-td:px-3 prose-td:py-2">
                     <ReactMarkdown 
                       remarkPlugins={[remarkGfm]}
                       components={{
@@ -231,7 +240,27 @@ export function ChatPanel({ explorationId, onHighlight }: ChatPanelProps) {
                         h2: ({ children }) => <h2 className="mb-3 mt-5 first:mt-0">{children}</h2>,
                         h3: ({ children }) => <h3 className="mb-2 mt-4 first:mt-0">{children}</h3>,
                         blockquote: ({ children }) => <blockquote className="my-4 border-l-4 border-gray-300 pl-4 italic">{children}</blockquote>,
-                        hr: () => <hr className="my-6 border-gray-300" />
+                        hr: () => <hr className="my-6 border-gray-300" />,
+                        table: ({ children }) => (
+                          <div className="overflow-x-auto my-4">
+                            <table className="min-w-full border-collapse border border-gray-300 bg-white rounded-lg shadow-sm">
+                              {children}
+                            </table>
+                          </div>
+                        ),
+                        thead: ({ children }) => <thead className="bg-gray-50">{children}</thead>,
+                        tbody: ({ children }) => <tbody className="divide-y divide-gray-200">{children}</tbody>,
+                        tr: ({ children }) => <tr className="hover:bg-gray-50">{children}</tr>,
+                        th: ({ children }) => (
+                          <th className="border border-gray-300 px-4 py-3 text-left font-semibold text-gray-900">
+                            {children}
+                          </th>
+                        ),
+                        td: ({ children }) => (
+                          <td className="border border-gray-300 px-4 py-3 text-gray-700">
+                            {children}
+                          </td>
+                        )
                       }}
                     >
                       {message.content}

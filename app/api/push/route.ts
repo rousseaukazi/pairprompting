@@ -54,7 +54,7 @@ export async function POST(request: NextRequest) {
 
     // Queue notifications for other members
     if (members && members.length > 0) {
-      const { error: notifError } = await supabaseAdmin
+      const { data: notifications, error: notifError } = await supabaseAdmin
         .from('notifications')
         .insert(
           members.map(member => ({
@@ -65,9 +65,29 @@ export async function POST(request: NextRequest) {
             read: false,
           }))
         )
+        .select('id')
 
       if (notifError) {
         console.error('Error creating notifications:', notifError)
+      } else if (notifications && notifications.length > 0) {
+        // Trigger email notifications in the background
+        try {
+          const notificationIds = notifications.map(n => n.id)
+          
+          // Send emails asynchronously (don't wait for completion to avoid blocking the response)
+          fetch(`${process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000'}/api/notifications/send`, {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              'Authorization': `Bearer ${process.env.INTERNAL_API_KEY || 'internal'}`, // Optional: internal auth
+            },
+            body: JSON.stringify({ notificationIds }),
+          }).catch(error => {
+            console.error('Failed to trigger email notifications:', error)
+          })
+        } catch (error) {
+          console.error('Error triggering email notifications:', error)
+        }
       }
     }
 
