@@ -33,7 +33,7 @@ async function getExploration(exploreId: string, userId: string) {
 export default async function ExplorationPage({ 
   params 
 }: { 
-  params: { exploreId: string } 
+  params: Promise<{ exploreId: string }>
 }) {
   const { userId } = await auth()
   
@@ -41,7 +41,8 @@ export default async function ExplorationPage({
     notFound()
   }
 
-  const data = await getExploration(params.exploreId, userId)
+  const { exploreId } = await params
+  const data = await getExploration(exploreId, userId)
   
   if (!data) {
     notFound()

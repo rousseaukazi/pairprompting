@@ -1,10 +1,15 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { Button } from '@/components/ui/button'
 import { MessageSquare, User } from 'lucide-react'
 import { supabase } from '@/lib/supabase'
-import type { Block } from '@/lib/supabase'
+import { useAuth } from '@clerk/nextjs'
+import type { Block, Comment } from '@/lib/supabase'
+
+type BlockWithComments = Block & {
+  comments?: Comment[]
+}
 
 type DocumentViewProps = {
   explorationId: string
@@ -12,17 +17,22 @@ type DocumentViewProps = {
 }
 
 export function DocumentView({ explorationId, title }: DocumentViewProps) {
-  const [blocks, setBlocks] = useState<Block[]>([])
+  const [blocks, setBlocks] = useState<BlockWithComments[]>([])
   const [commenting, setCommenting] = useState<string | null>(null)
   const [commentText, setCommentText] = useState('')
+  const [newBlockIds, setNewBlockIds] = useState<Set<string>>(new Set())
+  const blocksEndRef = useRef<HTMLDivElement>(null)
+  const { userId } = useAuth()
 
   useEffect(() => {
     // Load initial blocks
     loadBlocks()
 
-    // Subscribe to real-time updates
-    const channel = supabase
-      .channel(`exploration:${explorationId}`)
+    console.log('Setting up real-time subscriptions for exploration:', explorationId)
+
+    // Subscribe to real-time updates for blocks
+    const blocksChannel = supabase
+      .channel(`exploration:${explorationId}:blocks`)
       .on(
         'postgres_changes',
         {
@@ -32,48 +42,196 @@ export function DocumentView({ explorationId, title }: DocumentViewProps) {
           filter: `exploration_id=eq.${explorationId}`,
         },
         (payload) => {
-          setBlocks((current) => [...current, payload.new as Block])
+          console.log('Received real-time block update:', payload)
+          const newBlock = payload.new as BlockWithComments
+          newBlock.comments = []
+          setBlocks((current) => {
+            // Check if block already exists to prevent duplicates
+            if (current.some(b => b.id === newBlock.id)) {
+              return current
+            }
+            // Sort by position to maintain order
+            const updated = [...current, newBlock].sort((a, b) => a.position - b.position)
+            return updated
+          })
+          
+          // Track new blocks for animation
+          setNewBlockIds((prev) => new Set([...prev, newBlock.id]))
+          
+          // Remove from new blocks after animation
+          setTimeout(() => {
+            setNewBlockIds((prev) => {
+              const next = new Set(prev)
+              next.delete(newBlock.id)
+              return next
+            })
+          }, 2000)
+          
+          // Scroll to new block
+          setTimeout(() => {
+            blocksEndRef.current?.scrollIntoView({ behavior: 'smooth' })
+          }, 100)
         }
       )
-      .subscribe()
+      .subscribe((status) => {
+        console.log('Blocks channel subscription status:', status)
+      })
+
+    // Subscribe to real-time updates for comments
+    const commentsChannel = supabase
+      .channel(`exploration:${explorationId}:comments`)
+      .on(
+        'postgres_changes',
+        {
+          event: 'INSERT',
+          schema: 'public',
+          table: 'comments',
+        },
+        (payload) => {
+          console.log('Received real-time comment update:', payload)
+          const newComment = payload.new as Comment
+          setBlocks((current) => 
+            current.map(block => {
+              if (block.id === newComment.block_id) {
+                // Check if comment already exists to prevent duplicates
+                if (block.comments?.some(c => c.id === newComment.id)) {
+                  return block
+                }
+                return {
+                  ...block,
+                  comments: [...(block.comments || []), newComment]
+                }
+              }
+              return block
+            })
+          )
+        }
+      )
+      .subscribe((status) => {
+        console.log('Comments channel subscription status:', status)
+      })
 
     return () => {
-      supabase.removeChannel(channel)
+      console.log('Cleaning up real-time subscriptions')
+      supabase.removeChannel(blocksChannel)
+      supabase.removeChannel(commentsChannel)
     }
   }, [explorationId])
 
   const loadBlocks = async () => {
-    const { data, error } = await supabase
+    const { data: blocksData, error: blocksError } = await supabase
       .from('blocks')
       .select('*')
       .eq('exploration_id', explorationId)
       .order('position', { ascending: true })
 
-    if (error) {
-      console.error('Error loading blocks:', error)
+    if (blocksError) {
+      console.error('Error loading blocks:', blocksError)
       return
     }
 
-    setBlocks(data || [])
+    console.log('Loaded blocks:', blocksData)
+
+    // Load comments for all blocks
+    const { data: commentsData, error: commentsError } = await supabase
+      .from('comments')
+      .select('*')
+      .in('block_id', blocksData?.map(b => b.id) || [])
+      .order('created_at', { ascending: true })
+
+    if (commentsError) {
+      console.error('Error loading comments:', commentsError)
+    }
+
+    // Combine blocks with their comments
+    const blocksWithComments = (blocksData || []).map(block => ({
+      ...block,
+      comments: commentsData?.filter(c => c.block_id === block.id) || []
+    }))
+
+    setBlocks(blocksWithComments)
   }
 
   const handleComment = async (blockId: string) => {
-    if (!commentText.trim()) return
+    if (!commentText.trim() || !userId) return
 
-    const { error } = await supabase
+    const tempComment: Comment = {
+      id: `temp-${Date.now()}`,
+      block_id: blockId,
+      author_id: userId,
+      content: commentText,
+      created_at: new Date().toISOString()
+    }
+
+    // Optimistic update - add comment immediately
+    setBlocks((current) => 
+      current.map(block => {
+        if (block.id === blockId) {
+          return {
+            ...block,
+            comments: [...(block.comments || []), tempComment]
+          }
+        }
+        return block
+      })
+    )
+
+    // Clear the form
+    const commentContent = commentText
+    setCommentText('')
+    setCommenting(null)
+
+    // Save to database
+    const { data, error } = await supabase
       .from('comments')
       .insert({
         block_id: blockId,
-        content: commentText,
+        author_id: userId,
+        content: commentContent,
       })
+      .select()
+      .single()
 
     if (error) {
       console.error('Error posting comment:', error)
+      // Remove the optimistic update on error
+      setBlocks((current) => 
+        current.map(block => {
+          if (block.id === blockId) {
+            return {
+              ...block,
+              comments: block.comments?.filter(c => c.id !== tempComment.id) || []
+            }
+          }
+          return block
+        })
+      )
       return
     }
 
-    setCommentText('')
-    setCommenting(null)
+    // Replace temp comment with real one
+    if (data) {
+      setBlocks((current) => 
+        current.map(block => {
+          if (block.id === blockId) {
+            return {
+              ...block,
+              comments: block.comments?.map(c => 
+                c.id === tempComment.id ? data : c
+              ) || []
+            }
+          }
+          return block
+        })
+      )
+    }
+  }
+
+  const handleCommentKeyDown = (e: React.KeyboardEvent, blockId: string) => {
+    if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {
+      e.preventDefault()
+      handleComment(blockId)
+    }
   }
 
   return (
@@ -90,7 +248,11 @@ export function DocumentView({ explorationId, title }: DocumentViewProps) {
             {blocks.map((block) => (
               <div
                 key={block.id}
-                className="bg-white rounded-lg p-4 shadow-sm border highlight-animation"
+                className={`bg-white rounded-lg p-4 shadow-sm border transition-all duration-500 ${
+                  newBlockIds.has(block.id) 
+                    ? 'animate-slide-in-bottom ring-2 ring-primary ring-opacity-50' 
+                    : ''
+                }`}
               >
                 <div className="flex items-start justify-between mb-2">
                   <div className="flex items-center gap-2 text-sm text-gray-600">
@@ -103,20 +265,39 @@ export function DocumentView({ explorationId, title }: DocumentViewProps) {
                     variant="ghost"
                     size="sm"
                     onClick={() => setCommenting(block.id)}
+                    className="gap-1"
                   >
                     <MessageSquare className="w-4 h-4" />
+                    {block.comments && block.comments.length > 0 && (
+                      <span className="text-xs">{block.comments.length}</span>
+                    )}
                   </Button>
                 </div>
                 
                 <p className="whitespace-pre-wrap">{block.content}</p>
                 
+                {/* Display existing comments */}
+                {block.comments && block.comments.length > 0 && (
+                  <div className="mt-4 space-y-2 border-t pt-3">
+                    {block.comments.map((comment) => (
+                      <div key={comment.id} className="bg-gray-50 rounded p-2 text-sm">
+                        <p className="text-gray-700">{comment.content}</p>
+                        <p className="text-xs text-gray-500 mt-1">
+                          {new Date(comment.created_at).toLocaleString()}
+                        </p>
+                      </div>
+                    ))}
+                  </div>
+                )}
+                
                 {commenting === block.id && (
-                  <div className="mt-4 space-y-2">
+                  <div className="mt-4 space-y-2 border-t pt-3">
                     <textarea
                       value={commentText}
                       onChange={(e) => setCommentText(e.target.value)}
-                      placeholder="Add a comment..."
-                      className="w-full p-2 border rounded-md resize-none"
+                      onKeyDown={(e) => handleCommentKeyDown(e, block.id)}
+                      placeholder="Add a comment... (Cmd+Enter to post)"
+                      className="w-full p-2 border rounded-md resize-none focus:outline-none focus:ring-2 focus:ring-primary"
                       rows={2}
                       autoFocus
                     />
@@ -124,6 +305,7 @@ export function DocumentView({ explorationId, title }: DocumentViewProps) {
                       <Button
                         size="sm"
                         onClick={() => handleComment(block.id)}
+                        disabled={!commentText.trim()}
                       >
                         Post
                       </Button>
@@ -142,6 +324,7 @@ export function DocumentView({ explorationId, title }: DocumentViewProps) {
                 )}
               </div>
             ))}
+            <div ref={blocksEndRef} />
           </div>
         )}
       </div>

@@ -2,7 +2,7 @@
 
 import { useState, useRef, useEffect } from 'react'
 import { Button } from '@/components/ui/button'
-import { Send, Loader2 } from 'lucide-react'
+import { Send, Loader2, ArrowUpRight } from 'lucide-react'
 import { toast } from 'sonner'
 
 type Message = {
@@ -29,6 +29,27 @@ export function ChatPanel({ explorationId, onHighlight }: ChatPanelProps) {
   useEffect(() => {
     scrollToBottom()
   }, [messages])
+
+  // Global keyboard listener for Cmd+Enter
+  useEffect(() => {
+    const handleGlobalKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {
+        const selection = window.getSelection()
+        const text = selection?.toString().trim()
+        
+        if (text && onHighlight) {
+          e.preventDefault()
+          onHighlight(text)
+          selection?.removeAllRanges()
+          setSelectedText('')
+          toast.success('Block pushed to document!')
+        }
+      }
+    }
+
+    document.addEventListener('keydown', handleGlobalKeyDown)
+    return () => document.removeEventListener('keydown', handleGlobalKeyDown)
+  }, [onHighlight])
 
   const handleSend = async () => {
     if (!input.trim() || loading) return
@@ -98,14 +119,17 @@ export function ChatPanel({ explorationId, onHighlight }: ChatPanelProps) {
     }
   }
 
-  const handleKeyDown = (e: React.KeyboardEvent) => {
-    if (e.key === 'Enter' && e.metaKey && selectedText) {
-      e.preventDefault()
-      onHighlight?.(selectedText)
+  const handlePushBlock = () => {
+    if (selectedText && onHighlight) {
+      onHighlight(selectedText)
       setSelectedText('')
       window.getSelection()?.removeAllRanges()
       toast.success('Block pushed to document!')
-    } else if (e.key === 'Enter' && !e.shiftKey) {
+    }
+  }
+
+  const handleInputKeyDown = (e: React.KeyboardEvent) => {
+    if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault()
       handleSend()
     }
@@ -123,7 +147,7 @@ export function ChatPanel({ explorationId, onHighlight }: ChatPanelProps) {
               className={`max-w-[80%] rounded-lg p-3 ${
                 message.role === 'user'
                   ? 'bg-primary text-primary-foreground'
-                  : 'bg-gray-100 text-gray-900'
+                  : 'bg-gray-100 text-gray-900 select-text'
               }`}
               onMouseUp={message.role === 'assistant' ? handleTextSelection : undefined}
             >
@@ -143,15 +167,23 @@ export function ChatPanel({ explorationId, onHighlight }: ChatPanelProps) {
 
       <div className="border-t p-4">
         {selectedText && (
-          <div className="mb-2 p-2 bg-blue-50 rounded text-sm">
-            <p className="text-blue-700">Selected text • Press Cmd+Enter to push to document</p>
+          <div className="mb-2 p-2 bg-blue-50 rounded flex items-center justify-between">
+            <p className="text-sm text-blue-700">Selected text • Press Cmd+Enter to push</p>
+            <Button
+              size="sm"
+              onClick={handlePushBlock}
+              className="gap-1"
+            >
+              <ArrowUpRight className="w-3 h-3" />
+              Push Block
+            </Button>
           </div>
         )}
         <div className="flex gap-2">
           <textarea
             value={input}
             onChange={(e) => setInput(e.target.value)}
-            onKeyDown={handleKeyDown}
+            onKeyDown={handleInputKeyDown}
             placeholder="Type your message..."
             className="flex-1 resize-none rounded-md border p-2 focus:outline-none focus:ring-2 focus:ring-primary"
             rows={1}

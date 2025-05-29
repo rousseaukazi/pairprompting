@@ -1,4 +1,5 @@
 import { auth } from '@clerk/nextjs/server'
+import { redirect } from 'next/navigation'
 import Link from 'next/link'
 import { Button } from '@/components/ui/button'
 import { Plus, Users, Clock } from 'lucide-react'
@@ -28,7 +29,7 @@ export default async function DashboardPage() {
   const { userId } = await auth()
   
   if (!userId) {
-    return <div>Not authenticated</div>
+    redirect('/sign-in')
   }
 
   const explorations = await getExplorations(userId)

@@ -79,18 +79,4 @@
 /* Selection styles */
 ::selection {
   @apply bg-primary/20 text-primary;
-}
-
-/* Highlight animation for pushed blocks */
-@keyframes highlight-fade {
-  0% {
-    @apply bg-primary/20;
-  }
-  100% {
-    @apply bg-transparent;
-  }
-}
-
-.highlight-animation {
-  animation: highlight-fade 2s ease-out;
 } 
