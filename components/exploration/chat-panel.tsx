@@ -67,13 +67,11 @@ export function ChatPanel({ explorationId, onHighlight }: ChatPanelProps) {
     const handleGlobalKeyDown = (e: KeyboardEvent) => {
       if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {
         e.preventDefault()
-        const selection = window.getSelection()
-        const text = selection?.toString().trim()
         
-        if (text && onHighlight) {
-          onHighlight(text)
-          selection?.removeAllRanges()
+        if (selectedText && onHighlight) {
+          onHighlight(selectedText)
           setSelectedText('')
+          window.getSelection()?.removeAllRanges()
           toast.success('Block pushed to document!')
         }
       }
@@ -81,7 +79,7 @@ export function ChatPanel({ explorationId, onHighlight }: ChatPanelProps) {
 
     document.addEventListener('keydown', handleGlobalKeyDown, { capture: true })
     return () => document.removeEventListener('keydown', handleGlobalKeyDown, { capture: true })
-  }, [onHighlight])
+  }, [onHighlight, selectedText])
 
   const handleSend = async () => {
     if (!input.trim() || loading) return
@@ -160,20 +158,52 @@ export function ChatPanel({ explorationId, onHighlight }: ChatPanelProps) {
     }
   }
 
-  // Handle text selection with improved reliability
-  const handleTextSelection = (e: React.MouseEvent) => {
-    // Small delay to ensure selection is complete
-    setTimeout(() => {
+  // Handle clearing selection only when clicking outside messages or explicitly clearing
+  const handleDocumentClick = (e: MouseEvent) => {
+    const target = e.target as Element
+    // Only clear if clicking outside of assistant messages
+    if (!target.closest('[data-message-role="assistant"]')) {
+      setSelectedText('')
+      window.getSelection()?.removeAllRanges()
+    }
+  }
+
+  // Set up document-level click handler for clearing selection
+  useEffect(() => {
+    document.addEventListener('click', handleDocumentClick)
+    return () => document.removeEventListener('click', handleDocumentClick)
+  }, [])
+
+  // Enhanced selection change handler
+  useEffect(() => {
+    const handleSelectionChange = () => {
       const selection = window.getSelection()
       const text = selection?.toString().trim()
       
       if (text && text.length > 0) {
-        setSelectedText(text)
-      } else if (!text) {
-        setSelectedText('')
+        // Check if selection is within an assistant message
+        const range = selection?.getRangeAt(0)
+        const container = range?.commonAncestorContainer
+        const messageElement = container?.nodeType === Node.TEXT_NODE 
+          ? container.parentElement?.closest('[data-message-role="assistant"]')
+          : (container as Element)?.closest('[data-message-role="assistant"]')
+        
+        if (messageElement) {
+          setSelectedText(text)
+        }
+      } else if (!text && selectedText) {
+        // Only clear if there's no text and we had a selection before
+        // This prevents clearing when user is still selecting
+        const activeSelection = window.getSelection()
+        if (!activeSelection?.toString()) {
+          setSelectedText('')
+        }
       }
-    }, 10)
-  }
+    }
+
+    document.addEventListener('selectionchange', handleSelectionChange)
+    return () => document.removeEventListener('selectionchange', handleSelectionChange)
+  }, [selectedText])
 
   const handlePushBlock = () => {
     if (selectedText && onHighlight) {
@@ -223,8 +253,7 @@ export function ChatPanel({ explorationId, onHighlight }: ChatPanelProps) {
                     ? 'bg-primary text-primary-foreground'
                     : 'bg-gray-100 text-gray-900 select-text'
                 }`}
-                onMouseUp={message.role === 'assistant' ? handleTextSelection : undefined}
-                onMouseDown={message.role === 'assistant' ? () => setSelectedText('') : undefined}
+                data-message-role={message.role}
               >
                 {message.role === 'assistant' ? (
                   <div className="prose prose-sm max-w-none prose-headings:text-gray-900 prose-p:text-gray-900 prose-p:mb-3 prose-p:leading-relaxed prose-strong:text-gray-900 prose-em:text-gray-700 prose-code:text-gray-800 prose-code:bg-gray-200 prose-code:px-1 prose-code:rounded prose-pre:bg-gray-800 prose-pre:text-gray-100 prose-ul:mb-3 prose-ol:mb-3 prose-li:mb-1 prose-blockquote:border-l-4 prose-blockquote:border-gray-300 prose-blockquote:pl-4 prose-blockquote:italic prose-hr:my-4 prose-table:my-4 prose-thead:bg-gray-50 prose-th:border prose-th:border-gray-300 prose-th:px-3 prose-th:py-2 prose-th:font-semibold prose-td:border prose-td:border-gray-300 prose-td:px-3 prose-td:py-2">
