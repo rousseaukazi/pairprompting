@@ -15,6 +15,7 @@ type ExplorationClientProps = {
 
 export function ExplorationClient({ exploration, userId }: ExplorationClientProps) {
   const [showMobileMenu, setShowMobileMenu] = useState(false)
+  const [sharingLoading, setSharingLoading] = useState(false)
 
   const handlePushBlock = async (content: string) => {
     try {
@@ -41,10 +42,35 @@ export function ExplorationClient({ exploration, userId }: ExplorationClientProp
     }
   }
 
-  const handleShare = () => {
-    const shareUrl = `${window.location.origin}/invite/${exploration.id}`
-    navigator.clipboard.writeText(shareUrl)
-    toast.success('Share link copied to clipboard!')
+  const handleShare = async () => {
+    if (sharingLoading) return
+
+    setSharingLoading(true)
+
+    try {
+      const response = await fetch('/api/invite', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ explorationId: exploration.id }),
+      })
+
+      if (!response.ok) {
+        throw new Error('Failed to generate invite link')
+      }
+
+      const { token } = await response.json()
+      const shareUrl = `${window.location.origin}/invite/${token}`
+      
+      await navigator.clipboard.writeText(shareUrl)
+      toast.success('Invite link copied to clipboard!')
+    } catch (error) {
+      console.error('Error generating invite:', error)
+      toast.error('Failed to generate invite link')
+    } finally {
+      setSharingLoading(false)
+    }
   }
 
   return (
@@ -69,10 +95,11 @@ export function ExplorationClient({ exploration, userId }: ExplorationClientProp
               variant="outline"
               size="sm"
               onClick={handleShare}
+              disabled={sharingLoading}
               className="gap-2"
             >
               <Share2 className="w-4 h-4" />
-              Share
+              {sharingLoading ? 'Generating...' : 'Share'}
             </Button>
             <div className="flex items-center gap-2 text-sm text-gray-600">
               <Users className="w-4 h-4" />
