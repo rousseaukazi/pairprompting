@@ -11,11 +11,14 @@ ALTER PUBLICATION supabase_realtime ADD TABLE comments;
 ALTER PUBLICATION supabase_realtime ADD TABLE blocks;
 ALTER PUBLICATION supabase_realtime ADD TABLE user_preferences;
 
--- 4. Refresh the publication to make sure changes take effect
-ALTER PUBLICATION supabase_realtime REFRESH PUBLICATION;
+-- 4. No need to refresh - PostgreSQL handles this automatically
+-- The tables should be immediately available for real-time subscriptions
 
 -- 5. Check that all our tables are now enabled
 SELECT tablename FROM pg_publication_tables WHERE pubname = 'supabase_realtime' 
 AND tablename IN ('comments', 'blocks', 'user_preferences');
 
--- This should return all three tables if setup is correct 
+-- This should return all three tables if setup is correct
+
+-- Optional: If you want to see ALL tables enabled for realtime:
+-- SELECT * FROM pg_publication_tables WHERE pubname = 'supabase_realtime'; 
