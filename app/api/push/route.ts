@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { auth } from '@clerk/nextjs/server'
 import { supabaseAdmin } from '@/lib/supabase'
+import { getClerkUsers } from '@/lib/clerk-users'
+import { sendBulkNotificationEmails, NotificationEmailData } from '@/lib/email'
 
 export async function POST(request: NextRequest) {
   try {
@@ -83,47 +85,97 @@ export async function POST(request: NextRequest) {
       } else if (notifications && notifications.length > 0) {
         console.log('✅ Created', notifications.length, 'notifications:', notifications.map(n => n.id))
         
-        // Trigger email notifications in the background
+        // Send email notifications directly instead of making API call
         try {
-          const notificationIds = notifications.map(n => n.id)
-          const emailUrl = `${process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000'}/api/notifications/send`
-          const authKey = process.env.INTERNAL_API_KEY || 'internal'
+          console.log('📧 Processing email notifications directly...')
           
-          console.log('📧 Triggering email notifications...')
-          console.log('📧 Email URL:', emailUrl)
-          console.log('📧 Notification IDs:', notificationIds)
-          
-          // Send emails asynchronously (don't wait for completion to avoid blocking the response)
-          const emailPromise = fetch(emailUrl, {
-            method: 'POST',
-            headers: {
-              'Content-Type': 'application/json',
-              'Authorization': `Bearer ${authKey}`,
-            },
-            body: JSON.stringify({ notificationIds }),
-          }).then(async (response) => {
-            console.log('📧 Email API response status:', response.status)
-            const result = await response.json()
-            console.log('📧 Email API response:', result)
-            return result
-          }).catch(error => {
-            console.error('❌ Failed to trigger email notifications:', error)
-            throw error
+          // Get notifications with related data (same as notification send API)
+          const { data: fullNotifications, error: fetchError } = await supabaseAdmin
+            .from('notifications')
+            .select(`
+              *,
+              explorations (title),
+              blocks (content, author_id)
+            `)
+            .in('id', notifications.map(n => n.id))
+            .eq('read', false)
+
+          if (fetchError) {
+            console.error('❌ Error fetching notification details:', fetchError)
+            return NextResponse.json({ block })
+          }
+
+          if (!fullNotifications || fullNotifications.length === 0) {
+            console.log('⚠️ No notification details found')
+            return NextResponse.json({ block })
+          }
+
+          // Get all unique user IDs (recipients and senders)
+          const allUserIds = new Set<string>()
+          fullNotifications.forEach(notification => {
+            allUserIds.add(notification.user_id) // recipient
+            if (notification.blocks?.author_id) {
+              allUserIds.add(notification.blocks.author_id) // block author
+            }
           })
 
-          // Don't await this in production, but let's log it for debugging
-          if (process.env.NODE_ENV === 'development') {
-            console.log('🔍 Development mode: waiting for email result...')
-            try {
-              const emailResult = await emailPromise
-              console.log('✅ Email notification result:', emailResult)
-            } catch (emailError) {
-              console.error('❌ Email notification failed:', emailError)
-            }
-          }
+          console.log('👥 Getting user data for:', Array.from(allUserIds))
+
+          // Get user information
+          const clerkUsers = await getClerkUsers(Array.from(allUserIds))
           
+          // Get user preferences (emoji avatars)
+          const { data: preferences } = await supabaseAdmin
+            .from('user_preferences')
+            .select('user_id, emoji_avatar')
+            .in('user_id', Array.from(allUserIds))
+
+          const userPrefs = preferences?.reduce((acc, pref) => {
+            acc[pref.user_id] = pref
+            return acc
+          }, {} as Record<string, any>) || {}
+
+          // Prepare email data
+          const emailNotifications: NotificationEmailData[] = fullNotifications.map(notification => {
+            const recipient = clerkUsers[notification.user_id]
+            const sender = clerkUsers[notification.blocks?.author_id]
+            const senderPrefs = userPrefs[notification.blocks?.author_id]
+
+            return {
+              to: recipient?.emailAddress || '',
+              recipientName: recipient?.fullName || 'User',
+              senderName: sender?.fullName || 'Someone',
+              senderEmoji: senderPrefs?.emoji_avatar || '😀',
+              explorationTitle: notification.explorations?.title || 'Exploration',
+              explorationId: notification.exploration_id,
+              type: 'new_block' as const,
+              content: notification.blocks?.content || '',
+              blockId: notification.block_id
+            }
+          }).filter(email => {
+            const hasEmail = !!email.to
+            if (!hasEmail) {
+              console.log(`⚠️ Skipping email - no email address for recipient: ${email.recipientName}`)
+            }
+            return hasEmail
+          })
+
+          console.log('📮 Prepared', emailNotifications.length, 'emails')
+
+          if (emailNotifications.length > 0) {
+            // Send emails directly
+            const results = await sendBulkNotificationEmails(emailNotifications)
+            console.log('✅ Email results:', results)
+
+            // Mark notifications as processed
+            await supabaseAdmin
+              .from('notifications')
+              .update({ read: true })
+              .in('id', notifications.map(n => n.id))
+          }
+
         } catch (error) {
-          console.error('❌ Error triggering email notifications:', error)
+          console.error('❌ Error sending email notifications:', error)
         }
       } else {
         console.log('⚠️ No notifications created')
