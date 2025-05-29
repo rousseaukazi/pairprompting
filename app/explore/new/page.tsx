@@ -20,6 +20,8 @@ export default function NewExplorationPage() {
       return
     }
 
+    if (loading) return // Prevent double submission
+
     setLoading(true)
 
     try {
@@ -37,11 +39,11 @@ export default function NewExplorationPage() {
 
       const { id } = await response.json()
       router.push(`/e/${id}`)
+      // Don't reset loading state here - let the page navigate away
     } catch (error) {
       console.error('Error creating exploration:', error)
       toast.error('Failed to create exploration')
-    } finally {
-      setLoading(false)
+      setLoading(false) // Only reset on error
     }
   }
 
@@ -60,7 +62,8 @@ export default function NewExplorationPage() {
               id="title"
               value={title}
               onChange={(e) => setTitle(e.target.value)}
-              className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent"
+              disabled={loading}
+              className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent disabled:opacity-50"
               placeholder="e.g., AI Ethics Discussion"
               autoFocus
             />
@@ -71,13 +74,14 @@ export default function NewExplorationPage() {
               type="button"
               variant="outline"
               onClick={() => router.back()}
+              disabled={loading}
               className="flex-1"
             >
               Cancel
             </Button>
             <Button
               type="submit"
-              disabled={loading}
+              disabled={loading || !title.trim()}
               className="flex-1"
             >
               {loading ? 'Creating...' : 'Create Exploration'}

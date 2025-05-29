@@ -2,13 +2,19 @@
 
 import { useState, useEffect, useRef } from 'react'
 import { Button } from '@/components/ui/button'
-import { MessageSquare, User } from 'lucide-react'
+import { MessageSquare } from 'lucide-react'
 import { supabase } from '@/lib/supabase'
 import { useAuth } from '@clerk/nextjs'
+import { UserAvatar } from '@/components/user-avatar'
 import type { Block, Comment } from '@/lib/supabase'
 
 type BlockWithComments = Block & {
   comments?: Comment[]
+}
+
+type UserInfo = {
+  fullName: string
+  imageUrl: string | null
 }
 
 type DocumentViewProps = {
@@ -21,8 +27,45 @@ export function DocumentView({ explorationId, title }: DocumentViewProps) {
   const [commenting, setCommenting] = useState<string | null>(null)
   const [commentText, setCommentText] = useState('')
   const [newBlockIds, setNewBlockIds] = useState<Set<string>>(new Set())
+  const [users, setUsers] = useState<Record<string, UserInfo>>({})
   const blocksEndRef = useRef<HTMLDivElement>(null)
   const { userId } = useAuth()
+
+  // Fetch user information when blocks change
+  useEffect(() => {
+    const fetchUsers = async () => {
+      const userIds = new Set<string>()
+      
+      // Collect all unique user IDs from blocks and comments
+      blocks.forEach(block => {
+        userIds.add(block.author_id)
+        block.comments?.forEach(comment => {
+          userIds.add(comment.author_id)
+        })
+      })
+
+      if (userIds.size > 0) {
+        try {
+          const response = await fetch('/api/users', {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({ userIds: Array.from(userIds) }),
+          })
+
+          if (response.ok) {
+            const { users: fetchedUsers } = await response.json()
+            setUsers(fetchedUsers)
+          }
+        } catch (error) {
+          console.error('Error fetching users:', error)
+        }
+      }
+    }
+
+    fetchUsers()
+  }, [blocks])
 
   useEffect(() => {
     // Load initial blocks
@@ -256,8 +299,7 @@ export function DocumentView({ explorationId, title }: DocumentViewProps) {
               >
                 <div className="flex items-start justify-between mb-2">
                   <div className="flex items-center gap-2 text-sm text-gray-600">
-                    <User className="w-4 h-4" />
-                    <span>User</span>
+                    <UserAvatar user={users[block.author_id] || null} size="sm" />
                     <span>•</span>
                     <span>{new Date(block.created_at).toLocaleString()}</span>
                   </div>
@@ -278,13 +320,16 @@ export function DocumentView({ explorationId, title }: DocumentViewProps) {
                 
                 {/* Display existing comments */}
                 {block.comments && block.comments.length > 0 && (
-                  <div className="mt-4 space-y-2 border-t pt-3">
+                  <div className="mt-4 space-y-3 border-t pt-3">
                     {block.comments.map((comment) => (
-                      <div key={comment.id} className="bg-gray-50 rounded p-2 text-sm">
-                        <p className="text-gray-700">{comment.content}</p>
-                        <p className="text-xs text-gray-500 mt-1">
-                          {new Date(comment.created_at).toLocaleString()}
-                        </p>
+                      <div key={comment.id} className="bg-gray-50 rounded p-3">
+                        <div className="flex items-center gap-2 mb-2">
+                          <UserAvatar user={users[comment.author_id] || null} size="sm" />
+                          <span className="text-xs text-gray-500">
+                            {new Date(comment.created_at).toLocaleString()}
+                          </span>
+                        </div>
+                        <p className="text-sm text-gray-700">{comment.content}</p>
                       </div>
                     ))}
                   </div>
