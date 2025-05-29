@@ -25,6 +25,7 @@ export function ChatPanel({ explorationId, onHighlight }: ChatPanelProps) {
   const [initialLoading, setInitialLoading] = useState(true)
   const messagesEndRef = useRef<HTMLDivElement>(null)
   const [selectedText, setSelectedText] = useState('')
+  const textareaRef = useRef<HTMLTextAreaElement>(null)
 
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
@@ -66,6 +67,11 @@ export function ChatPanel({ explorationId, onHighlight }: ChatPanelProps) {
   useEffect(() => {
     const handleGlobalKeyDown = (e: KeyboardEvent) => {
       if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {
+        // Don't interfere if user is typing in textarea
+        if (document.activeElement === textareaRef.current) {
+          return
+        }
+        
         e.preventDefault()
         
         if (selectedText && onHighlight) {
@@ -158,23 +164,7 @@ export function ChatPanel({ explorationId, onHighlight }: ChatPanelProps) {
     }
   }
 
-  // Handle clearing selection only when clicking outside messages or explicitly clearing
-  const handleDocumentClick = (e: MouseEvent) => {
-    const target = e.target as Element
-    // Only clear if clicking outside of assistant messages
-    if (!target.closest('[data-message-role="assistant"]')) {
-      setSelectedText('')
-      window.getSelection()?.removeAllRanges()
-    }
-  }
-
-  // Set up document-level click handler for clearing selection
-  useEffect(() => {
-    document.addEventListener('click', handleDocumentClick)
-    return () => document.removeEventListener('click', handleDocumentClick)
-  }, [])
-
-  // Enhanced selection change handler
+  // Improved selection change handler
   useEffect(() => {
     const handleSelectionChange = () => {
       const selection = window.getSelection()
@@ -190,20 +180,19 @@ export function ChatPanel({ explorationId, onHighlight }: ChatPanelProps) {
         
         if (messageElement) {
           setSelectedText(text)
-        }
-      } else if (!text && selectedText) {
-        // Only clear if there's no text and we had a selection before
-        // This prevents clearing when user is still selecting
-        const activeSelection = window.getSelection()
-        if (!activeSelection?.toString()) {
+        } else {
+          // Clear selection if it's not in an assistant message
           setSelectedText('')
         }
+      } else {
+        // Clear when no text is selected
+        setSelectedText('')
       }
     }
 
     document.addEventListener('selectionchange', handleSelectionChange)
     return () => document.removeEventListener('selectionchange', handleSelectionChange)
-  }, [selectedText])
+  }, [])
 
   const handlePushBlock = () => {
     if (selectedText && onHighlight) {
@@ -218,6 +207,17 @@ export function ChatPanel({ explorationId, onHighlight }: ChatPanelProps) {
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault()
       handleSend()
+    }
+  }
+
+  // Clear selection when clicking outside assistant messages
+  const handleChatAreaClick = (e: React.MouseEvent) => {
+    const target = e.target as Element
+    
+    // Only clear if clicking on empty space, not on messages or UI elements
+    if (e.target === e.currentTarget) {
+      setSelectedText('')
+      window.getSelection()?.removeAllRanges()
     }
   }
 
@@ -236,7 +236,10 @@ export function ChatPanel({ explorationId, onHighlight }: ChatPanelProps) {
 
   return (
     <div className="flex flex-col h-full bg-white rounded-lg border">
-      <div className="flex-1 overflow-y-auto p-4 space-y-4">
+      <div 
+        className="flex-1 overflow-y-auto p-4 space-y-4"
+        onClick={handleChatAreaClick}
+      >
         {messages.length === 0 ? (
           <div className="flex items-center justify-center h-full text-gray-500">
             <p>Start a conversation with AI to explore topics...</p>
@@ -251,7 +254,7 @@ export function ChatPanel({ explorationId, onHighlight }: ChatPanelProps) {
                 className={`max-w-[80%] rounded-lg p-3 ${
                   message.role === 'user'
                     ? 'bg-primary text-primary-foreground'
-                    : 'bg-gray-100 text-gray-900 select-text'
+                    : 'bg-gray-100 text-gray-900 select-text cursor-text'
                 }`}
                 data-message-role={message.role}
               >
@@ -333,6 +336,7 @@ export function ChatPanel({ explorationId, onHighlight }: ChatPanelProps) {
         )}
         <div className="flex gap-2">
           <textarea
+            ref={textareaRef}
             value={input}
             onChange={(e) => setInput(e.target.value)}
             onKeyDown={handleInputKeyDown}
