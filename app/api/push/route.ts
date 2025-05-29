@@ -10,11 +10,15 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
     }
 
+    console.log('🚀 Block push API called by user:', userId)
+
     const { explorationId, content, position } = await request.json()
 
     if (!explorationId || !content) {
       return NextResponse.json({ error: 'Missing required fields' }, { status: 400 })
     }
+
+    console.log('📝 Creating block for exploration:', explorationId)
 
     // Verify user has access to this exploration
     const { data: membership } = await supabaseAdmin
@@ -25,6 +29,7 @@ export async function POST(request: NextRequest) {
       .single()
 
     if (!membership) {
+      console.log('❌ Access denied for user:', userId, 'to exploration:', explorationId)
       return NextResponse.json({ error: 'Access denied' }, { status: 403 })
     }
 
@@ -41,9 +46,11 @@ export async function POST(request: NextRequest) {
       .single()
 
     if (error) {
-      console.error('Error creating block:', error)
+      console.error('❌ Error creating block:', error)
       return NextResponse.json({ error: 'Failed to create block' }, { status: 500 })
     }
+
+    console.log('✅ Block created successfully:', block.id)
 
     // Get all users in this exploration for notifications
     const { data: members } = await supabaseAdmin
@@ -52,8 +59,12 @@ export async function POST(request: NextRequest) {
       .eq('exploration_id', explorationId)
       .neq('user_id', userId)
 
+    console.log('👥 Found members to notify:', members?.length || 0)
+
     // Queue notifications for other members
     if (members && members.length > 0) {
+      console.log('📢 Creating notifications for members...')
+      
       const { data: notifications, error: notifError } = await supabaseAdmin
         .from('notifications')
         .insert(
@@ -68,32 +79,62 @@ export async function POST(request: NextRequest) {
         .select('id')
 
       if (notifError) {
-        console.error('Error creating notifications:', notifError)
+        console.error('❌ Error creating notifications:', notifError)
       } else if (notifications && notifications.length > 0) {
+        console.log('✅ Created', notifications.length, 'notifications:', notifications.map(n => n.id))
+        
         // Trigger email notifications in the background
         try {
           const notificationIds = notifications.map(n => n.id)
+          const emailUrl = `${process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000'}/api/notifications/send`
+          const authKey = process.env.INTERNAL_API_KEY || 'internal'
+          
+          console.log('📧 Triggering email notifications...')
+          console.log('📧 Email URL:', emailUrl)
+          console.log('📧 Notification IDs:', notificationIds)
           
           // Send emails asynchronously (don't wait for completion to avoid blocking the response)
-          fetch(`${process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000'}/api/notifications/send`, {
+          const emailPromise = fetch(emailUrl, {
             method: 'POST',
             headers: {
               'Content-Type': 'application/json',
-              'Authorization': `Bearer ${process.env.INTERNAL_API_KEY || 'internal'}`, // Optional: internal auth
+              'Authorization': `Bearer ${authKey}`,
             },
             body: JSON.stringify({ notificationIds }),
+          }).then(async (response) => {
+            console.log('📧 Email API response status:', response.status)
+            const result = await response.json()
+            console.log('📧 Email API response:', result)
+            return result
           }).catch(error => {
-            console.error('Failed to trigger email notifications:', error)
+            console.error('❌ Failed to trigger email notifications:', error)
+            throw error
           })
+
+          // Don't await this in production, but let's log it for debugging
+          if (process.env.NODE_ENV === 'development') {
+            console.log('🔍 Development mode: waiting for email result...')
+            try {
+              const emailResult = await emailPromise
+              console.log('✅ Email notification result:', emailResult)
+            } catch (emailError) {
+              console.error('❌ Email notification failed:', emailError)
+            }
+          }
+          
         } catch (error) {
-          console.error('Error triggering email notifications:', error)
+          console.error('❌ Error triggering email notifications:', error)
         }
+      } else {
+        console.log('⚠️ No notifications created')
       }
+    } else {
+      console.log('👤 No other members to notify')
     }
 
     return NextResponse.json({ block })
   } catch (error) {
-    console.error('Push API error:', error)
+    console.error('❌ Push API error:', error)
     return NextResponse.json({ error: 'Internal server error' }, { status: 500 })
   }
 } 

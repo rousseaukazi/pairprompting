@@ -197,25 +197,44 @@ PairPrompting - Explore topics together with AI
 
 export async function sendNotificationEmail(data: NotificationEmailData) {
   try {
+    console.log(`📧 Sending email to: ${data.to} (${data.type})`)
+    console.log(`📧 Subject: ${data.type === 'new_block' ? '💡' : '💬'} ${data.senderName} ${data.type === 'new_block' ? 'added a new insight' : 'left a comment'} in "${data.explorationTitle}"`)
+    
     const template = getEmailTemplate(data)
     
+    // In development, if Resend is in sandbox mode, log what would be sent
+    const isDevelopment = process.env.NODE_ENV === 'development'
+    const targetEmail = data.to
+    
     const result = await resend.emails.send({
-      from: 'PairPrompting <notifications@resend.dev>', // Using Resend's sandbox domain
-      to: data.to,
+      from: 'PairPrompting <notifications@pairprompting.ai>', // Using verified domain
+      to: targetEmail,
       subject: template.subject,
       html: template.html,
       text: template.text,
     })
 
-    console.log('Email sent successfully:', result)
+    console.log('✅ Email sent successfully to:', data.to, 'Result:', result)
     return result
   } catch (error) {
-    console.error('Error sending email:', error)
+    console.error('❌ Error sending email to:', data.to, 'Error:', error)
+    
+    // If it's a Resend sandbox limitation, log it clearly
+    if (error instanceof Error && error.message.includes('You can only send testing emails')) {
+      console.log('🚨 RESEND SANDBOX LIMITATION: Can only send to verified emails in sandbox mode')
+      console.log('🔧 To fix: Either verify the domain at resend.com/domains or add the email address to your Resend account')
+      console.log(`📧 Would have sent email to: ${data.to}`)
+      console.log(`📝 Subject: ${data.type === 'new_block' ? '💡' : '💬'} ${data.senderName} ${data.type === 'new_block' ? 'added a new insight' : 'left a comment'} in "${data.explorationTitle}"`)
+      console.log(`📄 Content preview: ${data.content.substring(0, 100)}...`)
+    }
+    
     throw error
   }
 }
 
 export async function sendBulkNotificationEmails(notifications: NotificationEmailData[]) {
+  console.log(`📬 Sending ${notifications.length} notification emails...`)
+  
   const results = await Promise.allSettled(
     notifications.map(notification => sendNotificationEmail(notification))
   )
@@ -223,7 +242,14 @@ export async function sendBulkNotificationEmails(notifications: NotificationEmai
   const successful = results.filter(result => result.status === 'fulfilled').length
   const failed = results.filter(result => result.status === 'rejected').length
   
-  console.log(`Email notifications sent: ${successful} successful, ${failed} failed`)
+  console.log(`📊 Email results: ${successful} successful, ${failed} failed out of ${notifications.length} total`)
+  
+  // Log failed emails for debugging
+  results.forEach((result, index) => {
+    if (result.status === 'rejected') {
+      console.error(`❌ Failed email ${index + 1}:`, notifications[index].to, 'Reason:', result.reason)
+    }
+  })
   
   return { successful, failed, results }
 } 
