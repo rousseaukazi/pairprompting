@@ -4,10 +4,13 @@ import { useState, useRef, useEffect } from 'react'
 import { Button } from '@/components/ui/button'
 import { Send, Loader2, ArrowUpRight } from 'lucide-react'
 import { toast } from 'sonner'
+import ReactMarkdown from 'react-markdown'
+import remarkGfm from 'remark-gfm'
 
 type Message = {
   role: 'user' | 'assistant'
   content: string
+  timestamp?: string
 }
 
 type ChatPanelProps = {
@@ -19,6 +22,7 @@ export function ChatPanel({ explorationId, onHighlight }: ChatPanelProps) {
   const [messages, setMessages] = useState<Message[]>([])
   const [input, setInput] = useState('')
   const [loading, setLoading] = useState(false)
+  const [initialLoading, setInitialLoading] = useState(true)
   const messagesEndRef = useRef<HTMLDivElement>(null)
   const [selectedText, setSelectedText] = useState('')
 
@@ -29,6 +33,34 @@ export function ChatPanel({ explorationId, onHighlight }: ChatPanelProps) {
   useEffect(() => {
     scrollToBottom()
   }, [messages])
+
+  // Load chat history on initialization
+  useEffect(() => {
+    const loadChatHistory = async () => {
+      try {
+        const response = await fetch('/api/chat/load', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({ explorationId }),
+        })
+
+        if (response.ok) {
+          const { messages: chatHistory } = await response.json()
+          setMessages(chatHistory || [])
+        } else {
+          console.error('Failed to load chat history')
+        }
+      } catch (error) {
+        console.error('Error loading chat history:', error)
+      } finally {
+        setInitialLoading(false)
+      }
+    }
+
+    loadChatHistory()
+  }, [explorationId])
 
   // Global keyboard listener for Cmd+Enter
   useEffect(() => {
@@ -54,7 +86,11 @@ export function ChatPanel({ explorationId, onHighlight }: ChatPanelProps) {
   const handleSend = async () => {
     if (!input.trim() || loading) return
 
-    const userMessage = { role: 'user' as const, content: input }
+    const userMessage: Message = { 
+      role: 'user', 
+      content: input,
+      timestamp: new Date().toISOString()
+    }
     const newMessages = [...messages, userMessage]
     setMessages(newMessages)
     setInput('')
@@ -92,11 +128,21 @@ export function ChatPanel({ explorationId, onHighlight }: ChatPanelProps) {
         for (const line of lines) {
           if (line.startsWith('data: ')) {
             const data = line.slice(6)
-            if (data === '[DONE]') continue
+            if (data === '[DONE]') {
+              // Final message with timestamp
+              const finalAssistantMessage: Message = {
+                role: 'assistant',
+                content: assistantMessage,
+                timestamp: new Date().toISOString()
+              }
+              setMessages([...newMessages, finalAssistantMessage])
+              continue
+            }
             
             try {
               const parsed = JSON.parse(data)
               assistantMessage += parsed.content
+              // Show streaming response without timestamp yet
               setMessages([...newMessages, { role: 'assistant', content: assistantMessage }])
             } catch (e) {
               // Skip invalid JSON
@@ -107,6 +153,8 @@ export function ChatPanel({ explorationId, onHighlight }: ChatPanelProps) {
     } catch (error) {
       console.error('Chat error:', error)
       toast.error('Failed to send message')
+      // Remove the user message on error
+      setMessages(messages)
     } finally {
       setLoading(false)
     }
@@ -135,26 +183,58 @@ export function ChatPanel({ explorationId, onHighlight }: ChatPanelProps) {
     }
   }
 
+  if (initialLoading) {
+    return (
+      <div className="flex flex-col h-full bg-white rounded-lg border">
+        <div className="flex-1 flex items-center justify-center">
+          <div className="flex items-center gap-2 text-gray-500">
+            <Loader2 className="w-4 h-4 animate-spin" />
+            <span>Loading chat history...</span>
+          </div>
+        </div>
+      </div>
+    )
+  }
+
   return (
     <div className="flex flex-col h-full bg-white rounded-lg border">
       <div className="flex-1 overflow-y-auto p-4 space-y-4">
-        {messages.map((message, i) => (
-          <div
-            key={i}
-            className={`flex ${message.role === 'user' ? 'justify-end' : 'justify-start'}`}
-          >
-            <div
-              className={`max-w-[80%] rounded-lg p-3 ${
-                message.role === 'user'
-                  ? 'bg-primary text-primary-foreground'
-                  : 'bg-gray-100 text-gray-900 select-text'
-              }`}
-              onMouseUp={message.role === 'assistant' ? handleTextSelection : undefined}
-            >
-              <p className="whitespace-pre-wrap">{message.content}</p>
-            </div>
+        {messages.length === 0 ? (
+          <div className="flex items-center justify-center h-full text-gray-500">
+            <p>Start a conversation with AI to explore topics...</p>
           </div>
-        ))}
+        ) : (
+          messages.map((message, i) => (
+            <div
+              key={i}
+              className={`flex ${message.role === 'user' ? 'justify-end' : 'justify-start'}`}
+            >
+              <div
+                className={`max-w-[80%] rounded-lg p-3 ${
+                  message.role === 'user'
+                    ? 'bg-primary text-primary-foreground'
+                    : 'bg-gray-100 text-gray-900 select-text'
+                }`}
+                onMouseUp={message.role === 'assistant' ? handleTextSelection : undefined}
+              >
+                {message.role === 'assistant' ? (
+                  <div className="prose prose-sm max-w-none prose-headings:text-gray-900 prose-p:text-gray-900 prose-strong:text-gray-900 prose-em:text-gray-700 prose-code:text-gray-800 prose-code:bg-gray-200 prose-code:px-1 prose-code:rounded prose-pre:bg-gray-800 prose-pre:text-gray-100">
+                    <ReactMarkdown remarkPlugins={[remarkGfm]}>
+                      {message.content}
+                    </ReactMarkdown>
+                  </div>
+                ) : (
+                  <p className="whitespace-pre-wrap">{message.content}</p>
+                )}
+                {message.timestamp && (
+                  <p className="text-xs opacity-70 mt-1">
+                    {new Date(message.timestamp).toLocaleTimeString()}
+                  </p>
+                )}
+              </div>
+            </div>
+          ))
+        )}
         {loading && (
           <div className="flex justify-start">
             <div className="bg-gray-100 rounded-lg p-3">
@@ -187,6 +267,7 @@ export function ChatPanel({ explorationId, onHighlight }: ChatPanelProps) {
             placeholder="Type your message..."
             className="flex-1 resize-none rounded-md border p-2 focus:outline-none focus:ring-2 focus:ring-primary"
             rows={1}
+            disabled={loading}
           />
           <Button onClick={handleSend} disabled={loading || !input.trim()}>
             <Send className="w-4 h-4" />

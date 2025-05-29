@@ -2,7 +2,7 @@ import { User } from 'lucide-react'
 
 type UserInfo = {
   fullName: string
-  imageUrl: string | null
+  emojiAvatar: string
 }
 
 type UserAvatarProps = {
@@ -19,30 +19,12 @@ export function UserAvatar({ user, size = 'sm', showName = true, className = '' 
     lg: 'w-10 h-10 text-base'
   }
 
-  const avatarClasses = `${sizeClasses[size]} rounded-full flex items-center justify-center bg-gray-200 text-gray-600 font-medium overflow-hidden ${className}`
-
-  const getInitials = (name: string) => {
-    const parts = name.split(' ')
-    if (parts.length >= 2) {
-      return (parts[0][0] + parts[1][0]).toUpperCase()
-    }
-    return name.substring(0, 2).toUpperCase()
-  }
+  const avatarClasses = `${sizeClasses[size]} rounded-full flex items-center justify-center bg-gradient-to-br from-blue-50 to-purple-50 border-2 border-blue-200 text-lg overflow-hidden ${className}`
 
   return (
     <div className="flex items-center gap-2">
       <div className={avatarClasses}>
-        {user?.imageUrl ? (
-          <img 
-            src={user.imageUrl} 
-            alt={user.fullName}
-            className="w-full h-full object-cover"
-          />
-        ) : user?.fullName ? (
-          <span>{getInitials(user.fullName)}</span>
-        ) : (
-          <User className="w-3 h-3" />
-        )}
+        <span>{user?.emojiAvatar || '😀'}</span>
       </div>
       {showName && (
         <span className="text-sm text-gray-600">

@@ -6,6 +6,7 @@ import { MessageSquare } from 'lucide-react'
 import { supabase } from '@/lib/supabase'
 import { useAuth } from '@clerk/nextjs'
 import { UserAvatar } from '@/components/user-avatar'
+import { EmojiPicker } from '@/components/emoji-picker'
 import type { Block, Comment } from '@/lib/supabase'
 
 type BlockWithComments = Block & {
@@ -14,7 +15,7 @@ type BlockWithComments = Block & {
 
 type UserInfo = {
   fullName: string
-  imageUrl: string | null
+  emojiAvatar: string
 }
 
 type DocumentViewProps = {
@@ -28,43 +29,90 @@ export function DocumentView({ explorationId, title }: DocumentViewProps) {
   const [commentText, setCommentText] = useState('')
   const [newBlockIds, setNewBlockIds] = useState<Set<string>>(new Set())
   const [users, setUsers] = useState<Record<string, UserInfo>>({})
+  const [currentUserEmoji, setCurrentUserEmoji] = useState('😀')
   const blocksEndRef = useRef<HTMLDivElement>(null)
   const { userId } = useAuth()
 
-  // Fetch user information when blocks change
+  // Fetch current user's emoji preference
   useEffect(() => {
-    const fetchUsers = async () => {
-      const userIds = new Set<string>()
-      
-      // Collect all unique user IDs from blocks and comments
-      blocks.forEach(block => {
-        userIds.add(block.author_id)
-        block.comments?.forEach(comment => {
-          userIds.add(comment.author_id)
-        })
-      })
-
-      if (userIds.size > 0) {
-        try {
-          const response = await fetch('/api/users', {
-            method: 'POST',
-            headers: {
-              'Content-Type': 'application/json',
-            },
-            body: JSON.stringify({ userIds: Array.from(userIds) }),
-          })
-
-          if (response.ok) {
-            const { users: fetchedUsers } = await response.json()
-            setUsers(fetchedUsers)
-          }
-        } catch (error) {
-          console.error('Error fetching users:', error)
+    const fetchCurrentUserEmoji = async () => {
+      try {
+        const response = await fetch('/api/user-preferences')
+        if (response.ok) {
+          const { emoji_avatar } = await response.json()
+          setCurrentUserEmoji(emoji_avatar)
         }
+      } catch (error) {
+        console.error('Error fetching user emoji:', error)
       }
     }
 
-    fetchUsers()
+    if (userId) {
+      fetchCurrentUserEmoji()
+    }
+  }, [userId])
+
+  // Update user emoji
+  const handleEmojiChange = async (emoji: string) => {
+    try {
+      const response = await fetch('/api/user-preferences', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ emoji_avatar: emoji }),
+      })
+
+      if (response.ok) {
+        setCurrentUserEmoji(emoji)
+        // Refresh users to update current user's avatar in existing blocks/comments
+        const userIds = Object.keys(users)
+        if (userIds.length > 0) {
+          fetchUsers(userIds)
+        }
+      }
+    } catch (error) {
+      console.error('Error updating emoji:', error)
+    }
+  }
+
+  // Fetch user information
+  const fetchUsers = async (userIds: string[]) => {
+    if (userIds.length === 0) return
+
+    try {
+      const response = await fetch('/api/users', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ userIds }),
+      })
+
+      if (response.ok) {
+        const { users: fetchedUsers } = await response.json()
+        setUsers(fetchedUsers)
+      }
+    } catch (error) {
+      console.error('Error fetching users:', error)
+    }
+  }
+
+  // Fetch user information when blocks change
+  useEffect(() => {
+    const userIds = new Set<string>()
+    
+    // Collect all unique user IDs from blocks and comments
+    blocks.forEach(block => {
+      userIds.add(block.author_id)
+      block.comments?.forEach(comment => {
+        userIds.add(comment.author_id)
+      })
+    })
+
+    if (userIds.size > 0) {
+      fetchUsers(Array.from(userIds))
+    }
   }, [blocks])
 
   useEffect(() => {
@@ -280,7 +328,17 @@ export function DocumentView({ explorationId, title }: DocumentViewProps) {
   return (
     <div className="h-full bg-gray-50 overflow-y-auto">
       <div className="p-6">
-        <h1 className="text-2xl font-bold mb-6">{title}</h1>
+        <div className="flex items-center justify-between mb-6">
+          <h1 className="text-2xl font-bold">{title}</h1>
+          <div className="flex items-center gap-2">
+            <span className="text-sm text-gray-600">Your avatar:</span>
+            <EmojiPicker
+              currentEmoji={currentUserEmoji}
+              onEmojiSelect={handleEmojiChange}
+              size="sm"
+            />
+          </div>
+        </div>
         
         {blocks.length === 0 ? (
           <div className="text-center py-12 text-gray-500">

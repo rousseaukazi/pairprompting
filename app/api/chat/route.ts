@@ -31,30 +31,35 @@ export async function POST(request: NextRequest) {
 
     // Create a streaming response
     const encoder = new TextEncoder()
+    let assistantMessage = ''
+
     const stream = new ReadableStream({
       async start(controller) {
         try {
           for await (const chunk of streamCompletion(messages)) {
+            assistantMessage += chunk
             controller.enqueue(encoder.encode(`data: ${JSON.stringify({ content: chunk })}\n\n`))
           }
           controller.enqueue(encoder.encode('data: [DONE]\n\n'))
           
-          // Save the conversation after streaming is complete
-          const assistantMessage = messages[messages.length - 1]
-          if (assistantMessage.role === 'user') {
-            // Update chat history in database
-            const { error } = await supabaseAdmin
-              .from('chats')
-              .update({ 
-                messages: messages,
-                updated_at: new Date().toISOString()
-              })
-              .eq('exploration_id', explorationId)
-              .eq('user_id', userId)
+          // Save the complete conversation after streaming is done
+          const updatedMessages = [...messages, { 
+            role: 'assistant', 
+            content: assistantMessage,
+            timestamp: new Date().toISOString()
+          }]
 
-            if (error) {
-              console.error('Error updating chat:', error)
-            }
+          const { error } = await supabaseAdmin
+            .from('chats')
+            .upsert({
+              exploration_id: explorationId,
+              user_id: userId,
+              messages: updatedMessages,
+              updated_at: new Date().toISOString()
+            })
+
+          if (error) {
+            console.error('Error updating chat:', error)
           }
           
           controller.close()
