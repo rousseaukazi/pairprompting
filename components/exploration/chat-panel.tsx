@@ -291,24 +291,74 @@ export function ChatPanel({ explorationId, onHighlight }: ChatPanelProps) {
           console.log('Highlighted ranges:', highlightedRanges)
           console.log('Full bubble text:', fullText)
           
-          // Find sentences by position
-          const sentenceRegex = /[^.!?]*[.!?]+/g
-          let match
-          while ((match = sentenceRegex.exec(fullText)) !== null) {
-            const sentenceStart = match.index
-            const sentenceEnd = sentenceStart + match[0].length
-            const sentence = match[0].trim()
+          // Split text into sentences, treating headers and newlines as boundaries
+          const sentences: Array<{text: string, start: number, end: number}> = []
+          
+          // First split by double newlines to separate paragraphs/sections
+          const lines = fullText.split('\n')
+          let currentPos = 0
+          
+          lines.forEach(line => {
+            const trimmedLine = line.trim()
+            if (!trimmedLine) {
+              currentPos += line.length + 1 // +1 for the newline
+              return
+            }
             
-            // Check if any highlighted range falls within this sentence
+            // Check if this is a header (ends with :)
+            if (trimmedLine.endsWith(':')) {
+              sentences.push({
+                text: trimmedLine,
+                start: currentPos,
+                end: currentPos + line.length
+              })
+            } else {
+              // Split line into sentences by punctuation
+              const sentenceRegex = /[^.!?]*[.!?]+/g
+              let match
+              let lastEnd = 0
+              
+              while ((match = sentenceRegex.exec(line)) !== null) {
+                const sentenceText = match[0].trim()
+                if (sentenceText) {
+                  sentences.push({
+                    text: sentenceText,
+                    start: currentPos + match.index,
+                    end: currentPos + match.index + match[0].length
+                  })
+                  lastEnd = match.index + match[0].length
+                }
+              }
+              
+              // Handle text without ending punctuation
+              if (lastEnd < line.length) {
+                const remaining = line.substring(lastEnd).trim()
+                if (remaining) {
+                  sentences.push({
+                    text: remaining,
+                    start: currentPos + lastEnd,
+                    end: currentPos + line.length
+                  })
+                }
+              }
+            }
+            
+            currentPos += line.length + 1 // +1 for the newline
+          })
+          
+          console.log('Detected sentences:', sentences)
+          
+          // Check which sentences contain highlighted words
+          sentences.forEach(sentence => {
             const hasHighlight = highlightedRanges.some(range => 
-              range.start >= sentenceStart && range.end <= sentenceEnd
+              range.start >= sentence.start && range.end <= sentence.end
             )
             
             if (hasHighlight) {
-              console.log('Including sentence:', sentence)
-              selectedText += sentence + ' '
+              console.log('Including sentence:', sentence.text)
+              selectedText += sentence.text + ' '
             }
-          }
+          })
         }
       })
     }
