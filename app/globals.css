@@ -101,5 +101,5 @@ button, [role="button"] {
 
 /* Cursor when in highlight mode */
 .highlight-cursor {
-  cursor: url("data:image/svg+xml,%3csvg xmlns='http://www.w3.org/2000/svg' width='32' height='32' viewBox='0 0 24 24' fill='yellow' stroke='black' stroke-width='1' stroke-linecap='round' stroke-linejoin='round'%3e%3cpath d='M19 11l-5 5L5 7l5-5 9 9z'/%3e%3c/svg%3e") 4 28, crosshair;
+  cursor: url("data:image/svg+xml,%3csvg xmlns='http://www.w3.org/2000/svg' width='24' height='24' viewBox='0 0 24 24' fill='yellow' stroke='black' stroke-width='1' stroke-linecap='round' stroke-linejoin='round'%3e%3cpath d='M19 11l-5 5L5 7l5-5 9 9z'/%3e%3c/svg%3e") 2 22, crosshair;
 } 

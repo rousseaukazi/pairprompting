@@ -192,6 +192,10 @@ export function ChatPanel({ explorationId, onHighlight }: ChatPanelProps) {
       
       // Check which parts of each assistant message were highlighted
       assistantElems.forEach(bubble => {
+        const fullText = bubble.innerText
+        // Track word positions instead of just word text
+        const highlightedRanges: Array<{start: number, end: number, word: string}> = []
+        
         // Get all text nodes in the bubble
         const walker = document.createTreeWalker(
           bubble,
@@ -206,9 +210,17 @@ export function ChatPanel({ explorationId, onHighlight }: ChatPanelProps) {
           }
         )
         
+        // Track position in the full text
+        let globalTextPosition = 0
+        
         let textNode: Node | null
         while (textNode = walker.nextNode()) {
           const text = textNode.textContent || ''
+          
+          // Find where this text node appears in the full text
+          const nodeStartPos = fullText.indexOf(text, globalTextPosition)
+          if (nodeStartPos === -1) continue
+          
           const range = document.createRange()
           
           // Split text into words and check each one
@@ -259,7 +271,9 @@ export function ChatPanel({ explorationId, onHighlight }: ChatPanelProps) {
               }
               
               if (hasHighlight) {
-                selectedText += word + ' '
+                const wordStart = nodeStartPos + currentPos
+                const wordEnd = wordStart + word.length
+                highlightedRanges.push({start: wordStart, end: wordEnd, word: word.trim()})
               }
             } catch (e) {
               // Range API can fail on some edge cases
@@ -268,12 +282,39 @@ export function ChatPanel({ explorationId, onHighlight }: ChatPanelProps) {
             
             currentPos += word.length
           })
+          
+          globalTextPosition = nodeStartPos + text.length
+        }
+        
+        // Now find complete sentences that contain highlighted words
+        if (highlightedRanges.length > 0) {
+          console.log('Highlighted ranges:', highlightedRanges)
+          console.log('Full bubble text:', fullText)
+          
+          // Find sentences by position
+          const sentenceRegex = /[^.!?]*[.!?]+/g
+          let match
+          while ((match = sentenceRegex.exec(fullText)) !== null) {
+            const sentenceStart = match.index
+            const sentenceEnd = sentenceStart + match[0].length
+            const sentence = match[0].trim()
+            
+            // Check if any highlighted range falls within this sentence
+            const hasHighlight = highlightedRanges.some(range => 
+              range.start >= sentenceStart && range.end <= sentenceEnd
+            )
+            
+            if (hasHighlight) {
+              console.log('Including sentence:', sentence)
+              selectedText += sentence + ' '
+            }
+          }
         }
       })
-      
-      selectedText = selectedText.trim()
-      console.log('Selected text:', selectedText)
     }
+
+    selectedText = selectedText.trim()
+    console.log('Selected text:', selectedText)
 
     // clear and remove canvas
     if (canvas) {
