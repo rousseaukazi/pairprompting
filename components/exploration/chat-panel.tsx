@@ -29,6 +29,7 @@ export function ChatPanel({ explorationId, onHighlight }: ChatPanelProps) {
   const textareaRef = useRef<HTMLTextAreaElement>(null)
   const [highlightMode, setHighlightMode] = useState(false)
   const canvasRef = useRef<HTMLCanvasElement | null>(null)
+  const offscreenCanvasRef = useRef<HTMLCanvasElement | null>(null)
 
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
@@ -130,29 +131,61 @@ export function ChatPanel({ explorationId, onHighlight }: ChatPanelProps) {
         canvasRef.current = canvas
         document.body.appendChild(canvas)
       }
+      
+      // Create offscreen canvas
+      if (!offscreenCanvasRef.current) {
+        offscreenCanvasRef.current = document.createElement('canvas')
+      }
+      
       const canvas = canvasRef.current!
+      const offscreenCanvas = offscreenCanvasRef.current!
       const dpr = window.devicePixelRatio || 1
+      
       canvas.width = window.innerWidth * dpr
       canvas.height = window.innerHeight * dpr
+      offscreenCanvas.width = canvas.width
+      offscreenCanvas.height = canvas.height
+      
       const ctx = canvas.getContext('2d')!
+      const offscreenCtx = offscreenCanvas.getContext('2d')!
+      
       ctx.scale(dpr, dpr)
-      ctx.lineCap = 'round'
-      ctx.lineJoin = 'round'
-      ctx.strokeStyle = 'rgb(255, 235, 59)' // yellow
-      ctx.globalAlpha = 0.3 // 30% opacity
-      ctx.lineWidth = 20
+      offscreenCtx.scale(dpr, dpr)
+      
+      // Clear both canvases initially
+      ctx.clearRect(0, 0, canvas.width, canvas.height)
+      offscreenCtx.clearRect(0, 0, offscreenCanvas.width, offscreenCanvas.height)
+      
+      // Setup offscreen canvas for drawing at full opacity
+      offscreenCtx.lineCap = 'round'
+      offscreenCtx.lineJoin = 'round'
+      offscreenCtx.strokeStyle = 'rgba(255, 235, 59, 1)' // yellow at full opacity
+      offscreenCtx.globalAlpha = 1
+      offscreenCtx.lineWidth = 20
+      
+      // Function to update visible canvas from offscreen
+      const updateVisibleCanvas = () => {
+        console.log('Updating visible canvas')
+        // Clear at full canvas size
+        ctx.clearRect(0, 0, canvas.width / dpr, canvas.height / dpr)
+        ctx.globalAlpha = 0.4 // 40% opacity when copying to visible
+        // Draw the offscreen canvas scaled down
+        ctx.drawImage(offscreenCanvas, 0, 0, offscreenCanvas.width, offscreenCanvas.height, 0, 0, canvas.width / dpr, canvas.height / dpr)
+      }
 
       let drawing = false
 
       const onPointerDown = (e: PointerEvent) => {
+        console.log('Pointer down at:', e.clientX, e.clientY)
         drawing = true
-        ctx.beginPath()
-        ctx.moveTo(e.clientX, e.clientY)
+        offscreenCtx.beginPath()
+        offscreenCtx.moveTo(e.clientX, e.clientY)
       }
       const onPointerMove = (e: PointerEvent) => {
         if (!drawing) return
-        ctx.lineTo(e.clientX, e.clientY)
-        ctx.stroke()
+        offscreenCtx.lineTo(e.clientX, e.clientY)
+        offscreenCtx.stroke()
+        updateVisibleCanvas()
       }
       const onPointerUp = () => {
         drawing = false
@@ -183,10 +216,11 @@ export function ChatPanel({ explorationId, onHighlight }: ChatPanelProps) {
     if (!highlightMode) return
     console.log('=== Finish Highlight Debug ===')
     const canvas = canvasRef.current
+    const offscreenCanvas = offscreenCanvasRef.current
     let selectedText = ''
-    if (canvas) {
+    if (canvas && offscreenCanvas) {
       const dpr = window.devicePixelRatio || 1
-      const ctx = canvas.getContext('2d')!
+      const offscreenCtx = offscreenCanvas.getContext('2d')!
       const assistantElems = Array.from(document.querySelectorAll('[data-role="assistant"]')) as HTMLElement[]
       console.log('Assistant elements found:', assistantElems.length)
       
@@ -263,7 +297,7 @@ export function ChatPanel({ explorationId, onHighlight }: ChatPanelProps) {
               )
               
               for (const [x, y] of samples) {
-                const pixelData = ctx.getImageData(Math.floor(x * dpr), Math.floor(y * dpr), 1, 1).data
+                const pixelData = offscreenCtx.getImageData(Math.floor(x * dpr), Math.floor(y * dpr), 1, 1).data
                 if (pixelData[3] > 0) {
                   hasHighlight = true
                   break
@@ -367,9 +401,11 @@ export function ChatPanel({ explorationId, onHighlight }: ChatPanelProps) {
     console.log('Selected text:', selectedText)
 
     // clear and remove canvas
-    if (canvas) {
+    if (canvas && offscreenCanvas) {
       const ctx = canvas.getContext('2d')!
+      const offscreenCtx = offscreenCanvas.getContext('2d')!
       ctx.clearRect(0, 0, canvas.width, canvas.height)
+      offscreenCtx.clearRect(0, 0, offscreenCanvas.width, offscreenCanvas.height)
     }
 
     if (selectedText && onHighlight) {
