@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useRef, useEffect } from 'react'
+import { useState, useRef, useEffect, useLayoutEffect } from 'react'
 import { Button } from '@/components/ui/button'
 import { Send, Loader2, ArrowUpRight, Highlighter, Check } from 'lucide-react'
 import { toast } from 'sonner'
@@ -28,6 +28,7 @@ export function ChatPanel({ explorationId, onHighlight }: ChatPanelProps) {
   const [selectedText, setSelectedText] = useState('')
   const textareaRef = useRef<HTMLTextAreaElement>(null)
   const [highlightMode, setHighlightMode] = useState(false)
+  const canvasRef = useRef<HTMLCanvasElement | null>(null)
 
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
@@ -113,10 +114,66 @@ export function ChatPanel({ explorationId, onHighlight }: ChatPanelProps) {
     return () => document.removeEventListener('keydown', handleGlobalKeyDown, { capture: true })
   }, [onHighlight, selectedText])
 
+  // Manage overlay canvas lifecycle
+  useLayoutEffect(() => {
+    if (highlightMode) {
+      // create canvas if not exists
+      if (!canvasRef.current) {
+        const canvas = document.createElement('canvas')
+        canvas.style.position = 'fixed'
+        canvas.style.top = '0'
+        canvas.style.left = '0'
+        canvas.style.width = '100vw'
+        canvas.style.height = '100vh'
+        canvas.style.zIndex = '9999'
+        canvas.style.pointerEvents = 'none'
+        canvasRef.current = canvas
+        document.body.appendChild(canvas)
+      }
+      const canvas = canvasRef.current!
+      const dpr = window.devicePixelRatio || 1
+      canvas.width = window.innerWidth * dpr
+      canvas.height = window.innerHeight * dpr
+      const ctx = canvas.getContext('2d')!
+      ctx.scale(dpr, dpr)
+      ctx.lineCap = 'round'
+      ctx.lineJoin = 'round'
+      ctx.strokeStyle = 'rgb(255, 235, 59)' // yellow
+      ctx.globalAlpha = 0.3 // 30% opacity
+      ctx.lineWidth = 20
+
+      let drawing = false
+
+      const onPointerDown = (e: PointerEvent) => {
+        drawing = true
+        ctx.beginPath()
+        ctx.moveTo(e.clientX, e.clientY)
+      }
+      const onPointerMove = (e: PointerEvent) => {
+        if (!drawing) return
+        ctx.lineTo(e.clientX, e.clientY)
+        ctx.stroke()
+      }
+      const onPointerUp = () => {
+        drawing = false
+      }
+
+      canvas.style.pointerEvents = 'auto'
+      canvas.addEventListener('pointerdown', onPointerDown)
+      window.addEventListener('pointermove', onPointerMove)
+      window.addEventListener('pointerup', onPointerUp)
+
+      return () => {
+        canvas.style.pointerEvents = 'none'
+        canvas.removeEventListener('pointerdown', onPointerDown)
+        window.removeEventListener('pointermove', onPointerMove)
+        window.removeEventListener('pointerup', onPointerUp)
+      }
+    }
+  }, [highlightMode])
+
   // Start highlight mode
   const startHighlight = () => {
-    // clear any existing highlights
-    document.querySelectorAll('.assistant-highlighted').forEach(el => el.classList.remove('assistant-highlighted'))
     document.body.classList.add('highlight-cursor')
     setHighlightMode(true)
   }
@@ -124,21 +181,115 @@ export function ChatPanel({ explorationId, onHighlight }: ChatPanelProps) {
   // Finish highlight mode -> push block
   const finishHighlight = () => {
     if (!highlightMode) return
-    const elems = Array.from(document.querySelectorAll('.assistant-highlighted')) as HTMLElement[]
-    // deduplicate by traversing and ignoring child duplicates
-    const unique: HTMLElement[] = []
-    elems.forEach(el => {
-      if (!unique.some(u => u.contains(el))) {
-        unique.push(el)
-      }
-    })
-    const selectedText = unique.map(el => el.innerText.trim()).join('\n').trim()
+    console.log('=== Finish Highlight Debug ===')
+    const canvas = canvasRef.current
+    let selectedText = ''
+    if (canvas) {
+      const dpr = window.devicePixelRatio || 1
+      const ctx = canvas.getContext('2d')!
+      const assistantElems = Array.from(document.querySelectorAll('[data-role="assistant"]')) as HTMLElement[]
+      console.log('Assistant elements found:', assistantElems.length)
+      
+      // Check which parts of each assistant message were highlighted
+      assistantElems.forEach(bubble => {
+        // Get all text nodes in the bubble
+        const walker = document.createTreeWalker(
+          bubble,
+          NodeFilter.SHOW_TEXT,
+          {
+            acceptNode: (node) => {
+              // Skip empty text nodes and code blocks
+              if (!node.textContent?.trim()) return NodeFilter.FILTER_REJECT
+              if (node.parentElement?.closest('pre, code')) return NodeFilter.FILTER_REJECT
+              return NodeFilter.FILTER_ACCEPT
+            }
+          }
+        )
+        
+        let textNode: Node | null
+        while (textNode = walker.nextNode()) {
+          const text = textNode.textContent || ''
+          const range = document.createRange()
+          
+          // Split text into words and check each one
+          const words = text.split(/(\s+)/)
+          let currentPos = 0
+          
+          words.forEach(word => {
+            if (!word.trim()) {
+              currentPos += word.length
+              return
+            }
+            
+            // Create range for this word
+            try {
+              range.setStart(textNode!, currentPos)
+              range.setEnd(textNode!, currentPos + word.length)
+              const wordRect = range.getBoundingClientRect()
+              
+              // Check if this word intersects with paint
+              let hasHighlight = false
+              
+              // Sample many points across the word to catch any intersection
+              const samples: number[][] = []
+              const step = 3 // sample every 3 pixels
+              
+              // Sample along the entire width and height of the word
+              for (let x = wordRect.left; x <= wordRect.right; x += step) {
+                for (let y = wordRect.top; y <= wordRect.bottom; y += step) {
+                  samples.push([x, y])
+                }
+              }
+              
+              // Also sample the exact corners and center
+              samples.push(
+                [wordRect.left, wordRect.top],
+                [wordRect.right, wordRect.top],
+                [wordRect.left, wordRect.bottom],
+                [wordRect.right, wordRect.bottom],
+                [wordRect.left + wordRect.width / 2, wordRect.top + wordRect.height / 2]
+              )
+              
+              for (const [x, y] of samples) {
+                const pixelData = ctx.getImageData(Math.floor(x * dpr), Math.floor(y * dpr), 1, 1).data
+                if (pixelData[3] > 0) {
+                  hasHighlight = true
+                  break
+                }
+              }
+              
+              if (hasHighlight) {
+                selectedText += word + ' '
+              }
+            } catch (e) {
+              // Range API can fail on some edge cases
+              console.warn('Range error for word:', word, e)
+            }
+            
+            currentPos += word.length
+          })
+        }
+      })
+      
+      selectedText = selectedText.trim()
+      console.log('Selected text:', selectedText)
+    }
+
+    // clear and remove canvas
+    if (canvas) {
+      const ctx = canvas.getContext('2d')!
+      ctx.clearRect(0, 0, canvas.width, canvas.height)
+    }
+
     if (selectedText && onHighlight) {
       onHighlight(selectedText)
       toast.success('Block pushed to document!')
     }
-    // clear
-    elems.forEach(el => el.classList.remove('assistant-highlighted'))
+    // remove canvas overlay after timeout
+    if (canvas) {
+      canvas.remove()
+      canvasRef.current = null
+    }
     document.body.classList.remove('highlight-cursor')
     setHighlightMode(false)
   }
