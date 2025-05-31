@@ -2,10 +2,11 @@
 
 import { useState, useRef, useEffect } from 'react'
 import { Button } from '@/components/ui/button'
-import { Send, Loader2, ArrowUpRight } from 'lucide-react'
+import { Send, Loader2, ArrowUpRight, Highlighter, Check } from 'lucide-react'
 import { toast } from 'sonner'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
+import { isMobile } from '@/lib/utils'
 
 type Message = {
   role: 'user' | 'assistant'
@@ -26,6 +27,7 @@ export function ChatPanel({ explorationId, onHighlight }: ChatPanelProps) {
   const messagesEndRef = useRef<HTMLDivElement>(null)
   const [selectedText, setSelectedText] = useState('')
   const textareaRef = useRef<HTMLTextAreaElement>(null)
+  const [highlightMode, setHighlightMode] = useState(false)
 
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
@@ -70,20 +72,7 @@ export function ChatPanel({ explorationId, onHighlight }: ChatPanelProps) {
       const text = selection?.toString().trim()
       
       if (text && text.length > 0) {
-        // Check if selection is within an assistant message
-        const range = selection?.getRangeAt(0)
-        if (range) {
-          const container = range.commonAncestorContainer
-          const messageElement = container.nodeType === Node.TEXT_NODE 
-            ? container.parentElement?.closest('[data-message-role="assistant"]')
-            : (container as Element)?.closest('[data-message-role="assistant"]')
-          
-          if (messageElement) {
-            setSelectedText(text)
-          } else {
-            setSelectedText('')
-          }
-        }
+        setSelectedText(text)
       } else {
         setSelectedText('')
       }
@@ -124,6 +113,74 @@ export function ChatPanel({ explorationId, onHighlight }: ChatPanelProps) {
     return () => document.removeEventListener('keydown', handleGlobalKeyDown, { capture: true })
   }, [onHighlight, selectedText])
 
+  // Start highlight mode
+  const startHighlight = () => {
+    // clear any existing highlights
+    document.querySelectorAll('.assistant-highlighted').forEach(el => el.classList.remove('assistant-highlighted'))
+    document.body.classList.add('highlight-cursor')
+    setHighlightMode(true)
+  }
+
+  // Finish highlight mode -> push block
+  const finishHighlight = () => {
+    if (!highlightMode) return
+    const elems = Array.from(document.querySelectorAll('.assistant-highlighted')) as HTMLElement[]
+    // deduplicate by traversing and ignoring child duplicates
+    const unique: HTMLElement[] = []
+    elems.forEach(el => {
+      if (!unique.some(u => u.contains(el))) {
+        unique.push(el)
+      }
+    })
+    const selectedText = unique.map(el => el.innerText.trim()).join('\n').trim()
+    if (selectedText && onHighlight) {
+      onHighlight(selectedText)
+      toast.success('Block pushed to document!')
+    }
+    // clear
+    elems.forEach(el => el.classList.remove('assistant-highlighted'))
+    document.body.classList.remove('highlight-cursor')
+    setHighlightMode(false)
+  }
+
+  // Desktop: listen for Shift key
+  useEffect(() => {
+    const down = (e: KeyboardEvent) => {
+      if (e.key === 'Shift' && !highlightMode) {
+        startHighlight()
+      }
+    }
+    const up = (e: KeyboardEvent) => {
+      if (e.key === 'Shift' && highlightMode) {
+        finishHighlight()
+      }
+    }
+    window.addEventListener('keydown', down)
+    window.addEventListener('keyup', up)
+    return () => {
+      window.removeEventListener('keydown', down)
+      window.removeEventListener('keyup', up)
+    }
+  }, [highlightMode])
+
+  // Pointer move to mark assistant messages
+  useEffect(() => {
+    const handleMove = (e: PointerEvent) => {
+      if (!highlightMode) return
+      const node = document.elementFromPoint(e.clientX, e.clientY) as HTMLElement | null
+      if (!node) return
+      const bubble = node.closest('[data-role="assistant"]') as HTMLElement | null
+      if (!bubble) return
+      // Find smallest element inside bubble to highlight (paragraph, span, code, etc.)
+      let target: HTMLElement | null = node.nodeType === Node.TEXT_NODE ? node.parentElement as HTMLElement : node
+      if (target && !target.classList.contains('assistant-highlighted')) {
+        target.classList.add('assistant-highlighted')
+      }
+    }
+    window.addEventListener('pointermove', handleMove)
+    return () => window.removeEventListener('pointermove', handleMove)
+  }, [highlightMode])
+
   const handleSend = async () => {
     if (!input.trim() || loading) return
 
@@ -135,6 +192,8 @@ export function ChatPanel({ explorationId, onHighlight }: ChatPanelProps) {
     const newMessages = [...messages, userMessage]
     setMessages(newMessages)
     setInput('')
+    // keep focus so user can continue typing
+    textareaRef.current?.focus()
     setLoading(true)
 
     try {
@@ -198,6 +257,8 @@ export function ChatPanel({ explorationId, onHighlight }: ChatPanelProps) {
       setMessages(messages)
     } finally {
       setLoading(false)
+      // Re-focus the textarea so the user can keep typing
+      textareaRef.current?.focus()
     }
   }
 
@@ -217,9 +278,16 @@ export function ChatPanel({ explorationId, onHighlight }: ChatPanelProps) {
     }
   }
 
+  // When streaming ends, ensure textarea regains focus
+  useEffect(() => {
+    if (!loading) {
+      textareaRef.current?.focus()
+    }
+  }, [loading])
+
   if (initialLoading) {
     return (
-      <div className="flex flex-col h-full bg-white rounded-lg border">
+      <div className="flex flex-col h-full bg-background rounded-lg border border-border">
         <div className="flex-1 flex items-center justify-center">
           <div className="flex items-center gap-2 text-gray-500">
             <Loader2 className="w-4 h-4 animate-spin" />
@@ -231,7 +299,7 @@ export function ChatPanel({ explorationId, onHighlight }: ChatPanelProps) {
   }
 
   return (
-    <div className="flex flex-col h-full bg-white rounded-lg border">
+    <div className="flex flex-col h-full bg-background rounded-lg border border-border">
       <div className="flex-1 overflow-y-auto p-4 space-y-4">
         {messages.length === 0 ? (
           <div className="flex items-center justify-center h-full text-gray-500">
@@ -244,11 +312,13 @@ export function ChatPanel({ explorationId, onHighlight }: ChatPanelProps) {
               className={`flex ${message.role === 'user' ? 'justify-end' : 'justify-start'}`}
             >
               <div
-                className={`max-w-[80%] rounded-lg p-3 ${
+                className={`assistant-bubble max-w-[80%] rounded-lg p-3 ${
                   message.role === 'user'
                     ? 'bg-primary text-primary-foreground'
-                    : 'bg-gray-100 text-gray-900'
+                    : 'bg-muted text-foreground'
                 }`}
+                data-role={message.role}
+                data-index={i}
                 data-message-role={message.role}
               >
                 {message.role === 'assistant' ? (
@@ -268,21 +338,21 @@ export function ChatPanel({ explorationId, onHighlight }: ChatPanelProps) {
                         hr: () => <hr className="my-6 border-gray-300" />,
                         table: ({ children }) => (
                           <div className="overflow-x-auto my-4">
-                            <table className="min-w-full border-collapse border border-gray-300 bg-white rounded-lg shadow-sm">
+                            <table className="min-w-full border-collapse border border-border bg-card rounded-lg shadow-sm">
                               {children}
                             </table>
                           </div>
                         ),
-                        thead: ({ children }) => <thead className="bg-gray-50">{children}</thead>,
-                        tbody: ({ children }) => <tbody className="divide-y divide-gray-200">{children}</tbody>,
-                        tr: ({ children }) => <tr className="hover:bg-gray-50">{children}</tr>,
+                        thead: ({ children }) => <thead className="bg-muted">{children}</thead>,
+                        tbody: ({ children }) => <tbody className="divide-y divide-border">{children}</tbody>,
+                        tr: ({ children }) => <tr className="hover:bg-muted">{children}</tr>,
                         th: ({ children }) => (
-                          <th className="border border-gray-300 px-4 py-3 text-left font-semibold text-gray-900">
+                          <th className="border border-border px-4 py-3 text-left font-semibold text-foreground">
                             {children}
                           </th>
                         ),
                         td: ({ children }) => (
-                          <td className="border border-gray-300 px-4 py-3 text-gray-700">
+                          <td className="border border-border px-4 py-3 text-foreground/80">
                             {children}
                           </td>
                         )
@@ -305,7 +375,7 @@ export function ChatPanel({ explorationId, onHighlight }: ChatPanelProps) {
         )}
         {loading && (
           <div className="flex justify-start">
-            <div className="bg-gray-100 rounded-lg p-3">
+            <div className="bg-muted rounded-lg p-3">
               <Loader2 className="w-4 h-4 animate-spin" />
             </div>
           </div>
@@ -315,8 +385,8 @@ export function ChatPanel({ explorationId, onHighlight }: ChatPanelProps) {
 
       <div className="border-t p-4">
         {selectedText && (
-          <div className="mb-2 p-2 bg-blue-50 rounded flex items-center justify-between">
-            <p className="text-sm text-blue-700">Selected text • Press Cmd+Enter to push</p>
+          <div className="mb-2 p-2 bg-primary/10 rounded flex items-center justify-between">
+            <p className="text-sm text-primary">Selected text • Press Cmd+Enter to push</p>
             <Button
               size="sm"
               onClick={handlePushBlock}
@@ -327,16 +397,32 @@ export function ChatPanel({ explorationId, onHighlight }: ChatPanelProps) {
             </Button>
           </div>
         )}
-        <div className="flex gap-2">
+        <div className="flex gap-2 items-center">
+          {/* Mobile highlight toggle */}
+          {isMobile() && (
+            <Button
+              type="button"
+              size="icon"
+              variant={highlightMode ? 'secondary' : 'ghost'}
+              onClick={() => {
+                if (highlightMode) {
+                  finishHighlight()
+                } else {
+                  startHighlight()
+                }
+              }}
+            >
+              {highlightMode ? <Check className="w-4 h-4" /> : <Highlighter className="w-4 h-4" />}
+            </Button>
+          )}
           <textarea
             ref={textareaRef}
             value={input}
             onChange={(e) => setInput(e.target.value)}
             onKeyDown={handleInputKeyDown}
             placeholder="Type your message..."
-            className="flex-1 resize-none rounded-md border p-2 focus:outline-none focus:ring-2 focus:ring-primary"
+            className="flex-1 resize-none rounded-md bg-card text-foreground border border-border p-2 focus:outline-none focus:ring-2 focus:ring-primary placeholder:text-muted-foreground"
             rows={1}
-            disabled={loading}
           />
           <Button onClick={handleSend} disabled={loading || !input.trim()}>
             <Send className="w-4 h-4" />

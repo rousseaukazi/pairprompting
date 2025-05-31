@@ -5,6 +5,7 @@ import { DocumentView } from '@/components/exploration/document-view'
 import { ChatPanel } from '@/components/exploration/chat-panel'
 import { Button } from '@/components/ui/button'
 import { Share2, Menu } from 'lucide-react'
+import { ThemeToggle } from '@/components/theme-toggle'
 import { toast } from 'sonner'
 import type { Exploration } from '@/lib/supabase'
 
@@ -76,7 +77,7 @@ export function ExplorationClient({ exploration, userId }: ExplorationClientProp
   return (
     <div className="h-screen flex flex-col">
       {/* Header */}
-      <header className="bg-white border-b">
+      <header className="bg-background border-b border-border">
         <div className="px-4 h-16 flex items-center justify-between">
           <div className="flex items-center gap-4">
             <Button
@@ -91,6 +92,7 @@ export function ExplorationClient({ exploration, userId }: ExplorationClientProp
           </div>
           
           <div className="flex items-center gap-2">
+            <ThemeToggle />
             <Button
               variant="outline"
               size="sm"

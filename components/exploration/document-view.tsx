@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useRef } from 'react'
 import { Button } from '@/components/ui/button'
-import { MessageSquare, Settings } from 'lucide-react'
+import { Settings } from 'lucide-react'
 import { supabase } from '@/lib/supabase'
 import { useAuth } from '@clerk/nextjs'
 import { UserAvatar } from '@/components/user-avatar'
@@ -371,7 +371,7 @@ export function DocumentView({ explorationId, title }: DocumentViewProps) {
   }
 
   return (
-    <div className="h-full bg-gray-50 overflow-y-auto">
+    <div className="h-full bg-background overflow-y-auto">
       <div className="p-6">
         <div className="flex items-center justify-between mb-6">
           <h1 className="text-2xl font-bold">{title}</h1>
@@ -397,53 +397,50 @@ export function DocumentView({ explorationId, title }: DocumentViewProps) {
             {blocks.map((block) => (
               <div
                 key={block.id}
-                className={`bg-white rounded-lg p-4 shadow-sm border transition-all duration-500 ${
+                className={`bg-card rounded-lg p-4 shadow-sm border border-border transition-all duration-500 ${
                   newBlockIds.has(block.id) 
                     ? 'animate-slide-in-bottom ring-2 ring-primary ring-opacity-50' 
                     : ''
                 }`}
               >
-                <div className="flex items-start justify-between mb-2">
+                <div className="flex items-start mb-2">
                   <div className="flex items-center gap-2 text-sm text-gray-600">
                     <UserAvatar 
                       user={users[block.author_id] || null} 
                       size="sm" 
                       isLoading={!users[block.author_id]}
                     />
-                    <span>•</span>
-                    <span>{new Date(block.created_at).toLocaleString()}</span>
                   </div>
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    onClick={() => setCommenting(block.id)}
-                    className="gap-1"
-                  >
-                    <MessageSquare className="w-4 h-4" />
-                    {block.comments && block.comments.length > 0 && (
-                      <span className="text-xs">{block.comments.length}</span>
-                    )}
-                  </Button>
                 </div>
                 
                 <p className="whitespace-pre-wrap">{block.content}</p>
+                
+                {/* Comment toggle link */}
+                <div className="mt-2">
+                  <button
+                    onClick={() => setCommenting(commenting === block.id ? null : block.id)}
+                    className="text-sm text-gray-500 hover:text-primary"
+                  >
+                    comment{block.comments && block.comments.length > 0 ? ` (${block.comments.length})` : ''}
+                  </button>
+                </div>
                 
                 {/* Display existing comments */}
                 {block.comments && block.comments.length > 0 && (
                   <div className="mt-4 space-y-3 border-t pt-3">
                     {block.comments.map((comment) => (
-                      <div key={comment.id} className="bg-gray-50 rounded p-3">
+                      <div key={comment.id} className="bg-muted rounded p-3">
                         <div className="flex items-center gap-2 mb-2">
                           <UserAvatar 
                             user={users[comment.author_id] || null} 
                             size="sm" 
                             isLoading={!users[comment.author_id]}
                           />
-                          <span className="text-xs text-gray-500">
+                          <span className="text-xs text-muted-foreground">
                             {new Date(comment.created_at).toLocaleString()}
                           </span>
                         </div>
-                        <p className="text-sm text-gray-700">{comment.content}</p>
+                        <p className="text-sm text-foreground">{comment.content}</p>
                       </div>
                     ))}
                   </div>
@@ -456,7 +453,7 @@ export function DocumentView({ explorationId, title }: DocumentViewProps) {
                       onChange={(e) => setCommentText(e.target.value)}
                       onKeyDown={(e) => handleCommentKeyDown(e, block.id)}
                       placeholder="Add a comment... (Cmd+Enter to post)"
-                      className="w-full p-2 border rounded-md resize-none focus:outline-none focus:ring-2 focus:ring-primary"
+                      className="w-full p-2 bg-card text-foreground border border-border rounded-md resize-none focus:outline-none focus:ring-2 focus:ring-primary placeholder:text-muted-foreground"
                       rows={2}
                       autoFocus
                     />

@@ -78,28 +78,7 @@
 
 /* Enhanced selection styles */
 ::selection {
-  @apply bg-primary/25 text-primary;
-}
-
-/* Assistant message selection styling */
-[data-message-role="assistant"] ::selection {
   @apply bg-blue-200/60 text-blue-900;
-}
-
-/* Improved user-select behavior for assistant messages */
-[data-message-role="assistant"] {
-  user-select: text;
-  -webkit-user-select: text;
-  -moz-user-select: text;
-  -ms-user-select: text;
-}
-
-/* Ensure user messages are not selectable for highlighting */
-[data-message-role="user"] {
-  user-select: none;
-  -webkit-user-select: none;
-  -moz-user-select: none;
-  -ms-user-select: none;
 }
 
 /* Smooth transition for selection indicator */
@@ -107,16 +86,20 @@
   transition: background-color 0.2s ease-in-out;
 }
 
-/* Hover effect for assistant messages to indicate selectability */
-[data-message-role="assistant"]:hover {
-  background-color: rgb(243 244 246 / 0.8) !important;
-  transition: background-color 0.15s ease-in-out;
-}
-
-/* Prevent text selection on UI elements */
-button, .cursor-pointer, [role="button"] {
+/* Prevent text selection only on actionable controls */
+button, [role="button"] {
   user-select: none;
   -webkit-user-select: none;
   -moz-user-select: none;
   -ms-user-select: none;
+}
+
+/* Custom highlight class for chat selection */
+.assistant-highlighted {
+  @apply bg-yellow-300/30;
+}
+
+/* Cursor when in highlight mode */
+.highlight-cursor {
+  cursor: url("data:image/svg+xml,%3csvg xmlns='http://www.w3.org/2000/svg' width='32' height='32' viewBox='0 0 24 24' fill='yellow' stroke='black' stroke-width='1' stroke-linecap='round' stroke-linejoin='round'%3e%3cpath d='M19 11l-5 5L5 7l5-5 9 9z'/%3e%3c/svg%3e") 4 28, crosshair;
 } 
