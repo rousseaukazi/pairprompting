@@ -35,6 +35,17 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Access denied' }, { status: 403 })
     }
 
+    // Get the current highest position to determine the next position
+    const { data: lastBlock } = await supabaseAdmin
+      .from('blocks')
+      .select('position')
+      .eq('exploration_id', explorationId)
+      .order('position', { ascending: false })
+      .limit(1)
+      .single()
+
+    const nextPosition = lastBlock ? lastBlock.position + 1 : 0
+
     // Create the block
     const { data: block, error } = await supabaseAdmin
       .from('blocks')
@@ -42,7 +53,7 @@ export async function POST(request: NextRequest) {
         exploration_id: explorationId,
         author_id: userId,
         content,
-        position: position || 0,
+        position: nextPosition,
       })
       .select()
       .single()

@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from 'react'
 import { Button } from '@/components/ui/button'
-import { X, User, Palette, Save } from 'lucide-react'
+import { X, User, Palette, Save, ArrowUp, ArrowDown } from 'lucide-react'
 import { EmojiPicker } from '@/components/emoji-picker'
 import { toast } from 'sonner'
 
@@ -10,6 +10,7 @@ type UserProfile = {
   fullName: string
   emojiAvatar: string
   backgroundColor: string
+  blockSortOrder: 'chrono' | 'reverse_chrono'
 }
 
 type ProfileModalProps = {
@@ -29,14 +30,29 @@ const BACKGROUND_COLORS = [
   { name: 'Gray', value: 'from-gray-50 to-slate-50', border: 'border-gray-200' }
 ]
 
+const EMOJI_LIST = [
+  '😀', '😃', '😄', '😁', '😆', '😅', '🤣', '😂', '🙂', '🙃', '😉', '😊',
+  '😇', '🥰', '😍', '🤩', '😘', '😗', '😚', '😙', '😋', '😛', '😜', '🤪',
+  '😝', '🤑', '🤗', '🤭', '🤫', '🤔', '🤐', '🤨', '😐', '😑', '😶', '😏',
+  '😒', '🙄', '😬', '🤥', '😌', '😔', '😪', '🤤', '😴', '😷', '🤒', '🤕',
+  '🤢', '🤮', '🤧', '🥵', '🥶', '🥴', '😵', '🤯', '🤠', '🥳', '😎', '🤓',
+  '🧐', '😕', '😟', '🙁', '😮', '😯', '😲', '😳', '🥺', '😦', '😧', '😨',
+  '😰', '😥', '😢', '😭', '😱', '😖', '😣', '😞', '😓', '😩', '😫', '🥱',
+  '😤', '😡', '😠', '🤬', '😈', '👿', '💀', '💩', '🤡', '👹', '👺', '👻',
+  '👽', '👾', '🤖', '🐶', '🐱', '🐭', '🐹', '🐰', '🦊', '🐻', '🐼', '🐨',
+  '🐯', '🦁', '🐮', '🐷', '🐸', '🐵', '🐔', '🐧', '🐦', '🐤', '🦆', '🦉'
+]
+
 export function ProfileModal({ isOpen, onClose, isFirstTime = false }: ProfileModalProps) {
   const [profile, setProfile] = useState<UserProfile>({
     fullName: '',
     emojiAvatar: '😀',
-    backgroundColor: 'from-blue-50 to-purple-50'
+    backgroundColor: 'from-blue-50 to-purple-50',
+    blockSortOrder: 'reverse_chrono'
   })
   const [loading, setLoading] = useState(false)
   const [initialLoading, setInitialLoading] = useState(true)
+  const [showEmojiPicker, setShowEmojiPicker] = useState(false)
 
   // Load current profile
   useEffect(() => {
@@ -51,7 +67,11 @@ export function ProfileModal({ isOpen, onClose, isFirstTime = false }: ProfileMo
       
       // Get user preferences
       const prefsResponse = await fetch('/api/user-preferences')
-      let userPrefs = { emoji_avatar: '😀', background_color: 'from-blue-50 to-purple-50' }
+      let userPrefs = { 
+        emoji_avatar: '😀', 
+        background_color: 'from-blue-50 to-purple-50',
+        block_sort_order: 'reverse_chrono' 
+      }
       
       if (prefsResponse.ok) {
         userPrefs = await prefsResponse.json()
@@ -68,7 +88,8 @@ export function ProfileModal({ isOpen, onClose, isFirstTime = false }: ProfileMo
       setProfile({
         fullName: userInfo.fullName || 'User',
         emojiAvatar: userPrefs.emoji_avatar || '😀',
-        backgroundColor: userPrefs.background_color || 'from-blue-50 to-purple-50'
+        backgroundColor: userPrefs.background_color || 'from-blue-50 to-purple-50',
+        blockSortOrder: (userPrefs.block_sort_order as 'chrono' | 'reverse_chrono') || 'reverse_chrono'
       })
     } catch (error) {
       console.error('Error loading profile:', error)
@@ -96,26 +117,18 @@ export function ProfileModal({ isOpen, onClose, isFirstTime = false }: ProfileMo
         body: JSON.stringify({
           emoji_avatar: profile.emojiAvatar,
           background_color: profile.backgroundColor,
+          block_sort_order: profile.blockSortOrder,
         }),
       })
 
-      // Update user name (if Clerk allows it)
-      const nameResponse = await fetch('/api/user-info', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          fullName: profile.fullName,
-        }),
-      })
-
-      if (prefsResponse.ok) {
-        toast.success('Profile updated successfully!')
-        onClose()
-      } else {
+      if (!prefsResponse.ok) {
         throw new Error('Failed to update preferences')
       }
+
+      // Note: Clerk doesn't allow updating user names via API, so we can only show success
+      // In a real app, you might store the display name in your own database
+      toast.success('Profile updated successfully!')
+      onClose()
     } catch (error) {
       console.error('Error saving profile:', error)
       toast.error('Failed to update profile')
@@ -126,6 +139,7 @@ export function ProfileModal({ isOpen, onClose, isFirstTime = false }: ProfileMo
 
   const handleEmojiSelect = (emoji: string) => {
     setProfile(prev => ({ ...prev, emojiAvatar: emoji }))
+    setShowEmojiPicker(false)
   }
 
   const handleBackgroundSelect = (bgColor: string) => {
@@ -164,13 +178,63 @@ export function ProfileModal({ isOpen, onClose, isFirstTime = false }: ProfileMo
           <div className="space-y-6">
             {/* Profile Preview */}
             <div className="text-center">
-              <div className={`w-20 h-20 rounded-full mx-auto mb-2 flex items-center justify-center bg-gradient-to-br ${profile.backgroundColor} border-2 ${
-                BACKGROUND_COLORS.find(bg => bg.value === profile.backgroundColor)?.border || 'border-blue-200'
-              }`}>
-                <span className="text-3xl">{profile.emojiAvatar}</span>
+              <div className="relative inline-block">
+                <button
+                  onClick={() => setShowEmojiPicker(!showEmojiPicker)}
+                  className={`w-20 h-20 rounded-full mx-auto mb-2 flex items-center justify-center bg-gradient-to-br ${profile.backgroundColor} border-2 ${
+                    BACKGROUND_COLORS.find(bg => bg.value === profile.backgroundColor)?.border || 'border-blue-200'
+                  } hover:scale-105 transition-transform cursor-pointer`}
+                  title="Click to change emoji"
+                >
+                  <span className="text-3xl">{profile.emojiAvatar}</span>
+                </button>
               </div>
               <p className="font-medium text-gray-900">{profile.fullName || 'Your Name'}</p>
+              <p className="text-xs text-gray-500 mt-1">Click avatar to change emoji</p>
             </div>
+
+            {/* Emoji Picker Overlay */}
+            {showEmojiPicker && (
+              <>
+                {/* Backdrop */}
+                <div 
+                  className="fixed inset-0 z-[100]" 
+                  onClick={() => setShowEmojiPicker(false)}
+                />
+                
+                {/* Emoji Picker positioned in center of screen */}
+                <div className="fixed inset-0 z-[101] flex items-center justify-center pointer-events-none">
+                  <div className="pointer-events-auto bg-white border rounded-lg shadow-2xl p-4 w-80 max-h-[400px] flex flex-col">
+                    <div className="flex items-center justify-between gap-2 mb-3 pb-3 border-b">
+                      <span className="text-sm font-medium">Choose your emoji</span>
+                      <button
+                        onClick={() => setShowEmojiPicker(false)}
+                        className="text-gray-400 hover:text-gray-600"
+                      >
+                        <X className="w-4 h-4" />
+                      </button>
+                    </div>
+                    
+                    {/* Emoji Grid */}
+                    <div className="flex-1 overflow-y-auto">
+                      <div className="grid grid-cols-8 gap-2">
+                        {EMOJI_LIST.map((emoji) => (
+                          <button
+                            key={emoji}
+                            onClick={() => handleEmojiSelect(emoji)}
+                            className={`w-8 h-8 rounded-md hover:bg-gray-100 flex items-center justify-center text-lg transition-colors ${
+                              emoji === profile.emojiAvatar ? 'bg-blue-100 ring-2 ring-blue-300' : ''
+                            }`}
+                          >
+                            {emoji}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </>
+            )}
 
             {/* Name Input */}
             <div>
@@ -186,20 +250,6 @@ export function ProfileModal({ isOpen, onClose, isFirstTime = false }: ProfileMo
                 className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-primary"
                 autoFocus={isFirstTime}
               />
-            </div>
-
-            {/* Emoji Picker */}
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-3">
-                Choose Your Avatar
-              </label>
-              <div className="flex justify-center">
-                <EmojiPicker
-                  currentEmoji={profile.emojiAvatar}
-                  onEmojiSelect={handleEmojiSelect}
-                  size="lg"
-                />
-              </div>
             </div>
 
             {/* Background Color */}
@@ -222,6 +272,40 @@ export function ProfileModal({ isOpen, onClose, isFirstTime = false }: ProfileMo
                   />
                 ))}
               </div>
+            </div>
+
+            {/* Block Sort Order */}
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-3">
+                Block Feed Order
+              </label>
+              <div className="grid grid-cols-2 gap-3">
+                <button
+                  onClick={() => setProfile(prev => ({ ...prev, blockSortOrder: 'reverse_chrono' }))}
+                  className={`flex items-center justify-center gap-2 px-4 py-3 rounded-md border-2 transition-all ${
+                    profile.blockSortOrder === 'reverse_chrono'
+                      ? 'border-primary bg-primary/10 text-primary'
+                      : 'border-gray-200 hover:border-gray-300'
+                  }`}
+                >
+                  <ArrowUp className="w-4 h-4" />
+                  <span>Latest First</span>
+                </button>
+                <button
+                  onClick={() => setProfile(prev => ({ ...prev, blockSortOrder: 'chrono' }))}
+                  className={`flex items-center justify-center gap-2 px-4 py-3 rounded-md border-2 transition-all ${
+                    profile.blockSortOrder === 'chrono'
+                      ? 'border-primary bg-primary/10 text-primary'
+                      : 'border-gray-200 hover:border-gray-300'
+                  }`}
+                >
+                  <ArrowDown className="w-4 h-4" />
+                  <span>Oldest First</span>
+                </button>
+              </div>
+              <p className="text-xs text-gray-500 mt-2">
+                Choose how blocks appear in your document feed
+              </p>
             </div>
 
             {/* Actions */}

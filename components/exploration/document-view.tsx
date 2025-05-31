@@ -2,11 +2,9 @@
 
 import { useState, useEffect, useRef } from 'react'
 import { Button } from '@/components/ui/button'
-import { Settings } from 'lucide-react'
 import { supabase } from '@/lib/supabase'
 import { useAuth } from '@clerk/nextjs'
 import { UserAvatar } from '@/components/user-avatar'
-import { ProfileModal } from '@/components/profile-modal'
 import type { Block, Comment } from '@/lib/supabase'
 
 type BlockWithComments = Block & {
@@ -30,26 +28,27 @@ export function DocumentView({ explorationId, title }: DocumentViewProps) {
   const [newBlockIds, setNewBlockIds] = useState<Set<string>>(new Set())
   const [users, setUsers] = useState<Record<string, UserInfo>>({})
   const [currentUserEmoji, setCurrentUserEmoji] = useState('😀')
-  const [showProfileModal, setShowProfileModal] = useState(false)
+  const [sortOrder, setSortOrder] = useState<'chrono' | 'reverse_chrono'>('reverse_chrono')
   const blocksEndRef = useRef<HTMLDivElement>(null)
   const { userId } = useAuth()
 
-  // Fetch current user's emoji preference
+  // Fetch current user's emoji and sort preference
   useEffect(() => {
-    const fetchCurrentUserEmoji = async () => {
+    const fetchCurrentUserPreferences = async () => {
       try {
         const response = await fetch('/api/user-preferences')
         if (response.ok) {
-          const { emoji_avatar } = await response.json()
-          setCurrentUserEmoji(emoji_avatar)
+          const { emoji_avatar, block_sort_order } = await response.json()
+          setCurrentUserEmoji(emoji_avatar || '😀')
+          setSortOrder(block_sort_order || 'reverse_chrono')
         }
       } catch (error) {
-        console.error('Error fetching user emoji:', error)
+        console.error('Error fetching user preferences:', error)
       }
     }
 
     if (userId) {
-      fetchCurrentUserEmoji()
+      fetchCurrentUserPreferences()
     }
   }, [userId])
 
@@ -135,10 +134,7 @@ export function DocumentView({ explorationId, title }: DocumentViewProps) {
             })
           }, 2000)
           
-          // Scroll to new block
-          setTimeout(() => {
-            blocksEndRef.current?.scrollIntoView({ behavior: 'smooth' })
-          }, 100)
+          // Don't scroll - let the block animate in naturally
         }
       )
       .subscribe((status) => {
@@ -370,36 +366,34 @@ export function DocumentView({ explorationId, title }: DocumentViewProps) {
     }
   }
 
+  // Sort blocks based on user preference
+  const sortedBlocks = [...blocks].sort((a, b) => {
+    if (sortOrder === 'reverse_chrono') {
+      // Latest first - higher position numbers first
+      return b.position - a.position
+    } else {
+      // Oldest first - lower position numbers first
+      return a.position - b.position
+    }
+  })
+
   return (
     <div className="h-full bg-background overflow-y-auto">
       <div className="p-6">
-        <div className="flex items-center justify-between mb-6">
-          <h1 className="text-2xl font-bold">{title}</h1>
-          <div className="flex items-center gap-2">
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => setShowProfileModal(true)}
-              className="gap-2"
-            >
-              <Settings className="w-4 h-4" />
-              Profile
-            </Button>
-          </div>
-        </div>
-        
         {blocks.length === 0 ? (
           <div className="text-center py-12 text-gray-500">
             <p>No blocks pushed yet. Highlight text in your chat and press Cmd+Enter to add blocks.</p>
           </div>
         ) : (
           <div className="space-y-4">
-            {blocks.map((block) => (
+            {sortedBlocks.map((block) => (
               <div
                 key={block.id}
                 className={`bg-card rounded-lg p-4 shadow-sm border border-border transition-all duration-500 ${
                   newBlockIds.has(block.id) 
-                    ? 'animate-slide-in-bottom ring-2 ring-primary ring-opacity-50' 
+                    ? sortOrder === 'reverse_chrono' 
+                      ? 'animate-slide-in-top ring-2 ring-primary ring-opacity-50' 
+                      : 'animate-slide-in-bottom ring-2 ring-primary ring-opacity-50'
                     : ''
                 }`}
               >
@@ -484,11 +478,6 @@ export function DocumentView({ explorationId, title }: DocumentViewProps) {
           </div>
         )}
       </div>
-      
-      <ProfileModal
-        isOpen={showProfileModal}
-        onClose={() => setShowProfileModal(false)}
-      />
     </div>
   )
 } 

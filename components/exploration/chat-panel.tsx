@@ -563,6 +563,18 @@ export function ChatPanel({ explorationId, onHighlight }: ChatPanelProps) {
     }
   }, [loading])
 
+  // Auto-focus chat input on component mount
+  useEffect(() => {
+    // Small delay to ensure DOM is ready
+    const timer = setTimeout(() => {
+      if (!initialLoading && textareaRef.current) {
+        textareaRef.current.focus()
+      }
+    }, 100)
+
+    return () => clearTimeout(timer)
+  }, [initialLoading])
+
   if (initialLoading) {
     return (
       <div className="flex flex-col h-full bg-background rounded-lg border border-border">

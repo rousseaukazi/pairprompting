@@ -12,7 +12,7 @@ export async function GET() {
 
     const { data: preferences, error } = await supabaseAdmin
       .from('user_preferences')
-      .select('emoji_avatar, background_color')
+      .select('emoji_avatar, background_color, block_sort_order')
       .eq('user_id', userId)
       .single()
 
@@ -24,8 +24,9 @@ export async function GET() {
           user_id: userId,
           emoji_avatar: '😀',
           background_color: 'from-blue-50 to-purple-50',
+          block_sort_order: 'reverse_chrono',
         })
-        .select('emoji_avatar, background_color')
+        .select('emoji_avatar, background_color, block_sort_order')
         .single()
 
       if (createError) {
@@ -35,13 +36,15 @@ export async function GET() {
 
       return NextResponse.json({ 
         emoji_avatar: newPrefs.emoji_avatar,
-        background_color: newPrefs.background_color
+        background_color: newPrefs.background_color,
+        block_sort_order: newPrefs.block_sort_order
       })
     }
 
     return NextResponse.json({ 
       emoji_avatar: preferences.emoji_avatar,
-      background_color: preferences.background_color || 'from-blue-50 to-purple-50'
+      background_color: preferences.background_color || 'from-blue-50 to-purple-50',
+      block_sort_order: preferences.block_sort_order || 'reverse_chrono'
     })
   } catch (error) {
     console.error('User preferences API error:', error)
@@ -57,9 +60,9 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
     }
 
-    const { emoji_avatar, background_color } = await request.json()
+    const { emoji_avatar, background_color, block_sort_order } = await request.json()
 
-    if (!emoji_avatar && !background_color) {
+    if (!emoji_avatar && !background_color && !block_sort_order) {
       return NextResponse.json({ error: 'At least one preference is required' }, { status: 400 })
     }
 
@@ -77,10 +80,14 @@ export async function POST(request: NextRequest) {
       updateData.background_color = background_color
     }
 
+    if (block_sort_order) {
+      updateData.block_sort_order = block_sort_order
+    }
+
     const { data: preferences, error } = await supabaseAdmin
       .from('user_preferences')
       .upsert(updateData)
-      .select('emoji_avatar, background_color')
+      .select('emoji_avatar, background_color, block_sort_order')
       .single()
 
     if (error) {
@@ -90,7 +97,8 @@ export async function POST(request: NextRequest) {
 
     return NextResponse.json({ 
       emoji_avatar: preferences.emoji_avatar,
-      background_color: preferences.background_color
+      background_color: preferences.background_color,
+      block_sort_order: preferences.block_sort_order
     })
   } catch (error) {
     console.error('User preferences API error:', error)
