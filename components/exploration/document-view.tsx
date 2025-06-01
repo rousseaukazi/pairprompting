@@ -5,6 +5,8 @@ import { Button } from '@/components/ui/button'
 import { supabase } from '@/lib/supabase'
 import { useAuth } from '@clerk/nextjs'
 import { UserAvatar } from '@/components/user-avatar'
+import ReactMarkdown from 'react-markdown'
+import remarkGfm from 'remark-gfm'
 import type { Block, Comment } from '@/lib/supabase'
 
 type BlockWithComments = Block & {
@@ -382,7 +384,7 @@ export function DocumentView({ explorationId, title }: DocumentViewProps) {
       <div className="p-6">
         {blocks.length === 0 ? (
           <div className="text-center py-12 text-gray-500">
-            <p>No blocks pushed yet. Highlight text in your chat and press Cmd+Enter to add blocks.</p>
+            <p>No blocks pushed yet. Hold Shift and draw over text in your chat to highlight and push blocks.</p>
           </div>
         ) : (
           <div className="space-y-4">
@@ -407,7 +409,45 @@ export function DocumentView({ explorationId, title }: DocumentViewProps) {
                   </div>
                 </div>
                 
-                <p className="whitespace-pre-wrap">{block.content}</p>
+                <div className="prose prose-sm max-w-none prose-headings:text-gray-900 prose-p:text-gray-900 prose-p:mb-3 prose-p:leading-relaxed prose-strong:text-gray-900 prose-em:text-gray-700 prose-code:text-gray-800 prose-code:bg-gray-200 prose-code:px-1 prose-code:rounded prose-pre:bg-gray-800 prose-pre:text-gray-100 prose-ul:mb-3 prose-ol:mb-3 prose-li:mb-1 prose-blockquote:border-l-4 prose-blockquote:border-gray-300 prose-blockquote:pl-4 prose-blockquote:italic prose-hr:my-4">
+                  <ReactMarkdown 
+                    remarkPlugins={[remarkGfm]}
+                    components={{
+                      p: ({ children }) => <p className="mb-3 last:mb-0">{children}</p>,
+                      br: () => <br className="mb-2" />,
+                      ul: ({ children }) => <ul className="mb-3 space-y-1">{children}</ul>,
+                      ol: ({ children }) => <ol className="mb-3 space-y-1">{children}</ol>,
+                      li: ({ children }) => <li className="leading-relaxed">{children}</li>,
+                      h1: ({ children }) => <h1 className="mb-4 mt-6 first:mt-0">{children}</h1>,
+                      h2: ({ children }) => <h2 className="mb-3 mt-5 first:mt-0">{children}</h2>,
+                      h3: ({ children }) => <h3 className="mb-2 mt-4 first:mt-0">{children}</h3>,
+                      blockquote: ({ children }) => <blockquote className="my-4 border-l-4 border-gray-300 pl-4 italic">{children}</blockquote>,
+                      hr: () => <hr className="my-6 border-gray-300" />,
+                      table: ({ children }) => (
+                        <div className="overflow-x-auto my-4">
+                          <table className="min-w-full border-collapse border border-border bg-card rounded-lg shadow-sm">
+                            {children}
+                          </table>
+                        </div>
+                      ),
+                      thead: ({ children }) => <thead className="bg-muted">{children}</thead>,
+                      tbody: ({ children }) => <tbody className="divide-y divide-border">{children}</tbody>,
+                      tr: ({ children }) => <tr className="hover:bg-muted">{children}</tr>,
+                      th: ({ children }) => (
+                        <th className="border border-border px-4 py-3 text-left font-semibold text-foreground">
+                          {children}
+                        </th>
+                      ),
+                      td: ({ children }) => (
+                        <td className="border border-border px-4 py-3 text-foreground/80">
+                          {children}
+                        </td>
+                      )
+                    }}
+                  >
+                    {block.content}
+                  </ReactMarkdown>
+                </div>
                 
                 {/* Comment toggle link */}
                 <div className="mt-2">

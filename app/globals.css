@@ -102,4 +102,32 @@ button, [role="button"] {
 /* Cursor when in highlight mode */
 .highlight-cursor {
   cursor: url("data:image/svg+xml,%3csvg xmlns='http://www.w3.org/2000/svg' width='24' height='24' viewBox='0 0 24 24' fill='yellow' stroke='black' stroke-width='1' stroke-linecap='round' stroke-linejoin='round'%3e%3cpath d='M19 11l-5 5L5 7l5-5 9 9z'/%3e%3c/svg%3e") 2 22, crosshair;
+}
+
+/* Hide scrollbar by default */
+.scrollbar-hide {
+  -ms-overflow-style: none;  /* IE and Edge */
+  scrollbar-width: none;  /* Firefox */
+}
+.scrollbar-hide::-webkit-scrollbar {
+  display: none;  /* Chrome, Safari and Opera */
+}
+
+/* Show scrollbar on hover */
+.scrollbar-default:hover {
+  -ms-overflow-style: auto;
+  scrollbar-width: thin;
+}
+.scrollbar-default:hover::-webkit-scrollbar {
+  display: initial;
+  width: 6px;
+}
+.scrollbar-default:hover::-webkit-scrollbar-track {
+  @apply bg-gray-100;
+}
+.scrollbar-default:hover::-webkit-scrollbar-thumb {
+  @apply bg-gray-400 rounded-full;
+}
+.scrollbar-default:hover::-webkit-scrollbar-thumb:hover {
+  @apply bg-gray-500;
 } 

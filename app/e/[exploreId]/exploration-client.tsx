@@ -35,16 +35,16 @@ export function ExplorationClient({ exploration, userId }: ExplorationClientProp
   useEffect(() => {
     const loadUserInfo = async () => {
       try {
-        // Get user info
-        const userResponse = await fetch('/api/user-info')
-        const userData = await userResponse.json()
-        
-        // Get user preferences
+        // Get user preferences (includes display name)
         const prefsResponse = await fetch('/api/user-preferences')
         const prefsData = await prefsResponse.json()
         
+        // Get user info from Clerk (for fallback)
+        const userResponse = await fetch('/api/user-info')
+        const userData = await userResponse.json()
+        
         setUserInfo({
-          fullName: userData.fullName || 'User',
+          fullName: prefsData.display_name || userData.fullName || 'User',
           emojiAvatar: prefsData.emoji_avatar || '😀',
           backgroundColor: prefsData.background_color
         })
@@ -260,11 +260,11 @@ export function ExplorationClient({ exploration, userId }: ExplorationClientProp
           setShowProfileModal(false)
           // Refresh user info after closing
           Promise.all([
-            fetch('/api/user-info').then(r => r.json()),
-            fetch('/api/user-preferences').then(r => r.json())
-          ]).then(([userData, prefsData]) => {
+            fetch('/api/user-preferences').then(r => r.json()),
+            fetch('/api/user-info').then(r => r.json())
+          ]).then(([prefsData, userData]) => {
             setUserInfo({
-              fullName: userData.fullName || 'User',
+              fullName: prefsData.display_name || userData.fullName || 'User',
               emojiAvatar: prefsData.emoji_avatar || '😀',
               backgroundColor: prefsData.background_color
             })

@@ -12,7 +12,7 @@ export async function GET() {
 
     const { data: preferences, error } = await supabaseAdmin
       .from('user_preferences')
-      .select('emoji_avatar, background_color, block_sort_order')
+      .select('emoji_avatar, background_color, block_sort_order, display_name')
       .eq('user_id', userId)
       .single()
 
@@ -25,8 +25,9 @@ export async function GET() {
           emoji_avatar: '😀',
           background_color: 'from-blue-50 to-purple-50',
           block_sort_order: 'reverse_chrono',
+          display_name: null,
         })
-        .select('emoji_avatar, background_color, block_sort_order')
+        .select('emoji_avatar, background_color, block_sort_order, display_name')
         .single()
 
       if (createError) {
@@ -37,14 +38,16 @@ export async function GET() {
       return NextResponse.json({ 
         emoji_avatar: newPrefs.emoji_avatar,
         background_color: newPrefs.background_color,
-        block_sort_order: newPrefs.block_sort_order
+        block_sort_order: newPrefs.block_sort_order,
+        display_name: newPrefs.display_name
       })
     }
 
     return NextResponse.json({ 
       emoji_avatar: preferences.emoji_avatar,
       background_color: preferences.background_color || 'from-blue-50 to-purple-50',
-      block_sort_order: preferences.block_sort_order || 'reverse_chrono'
+      block_sort_order: preferences.block_sort_order || 'reverse_chrono',
+      display_name: preferences.display_name
     })
   } catch (error) {
     console.error('User preferences API error:', error)
@@ -60,9 +63,9 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
     }
 
-    const { emoji_avatar, background_color, block_sort_order } = await request.json()
+    const { emoji_avatar, background_color, block_sort_order, display_name } = await request.json()
 
-    if (!emoji_avatar && !background_color && !block_sort_order) {
+    if (!emoji_avatar && !background_color && !block_sort_order && display_name === undefined) {
       return NextResponse.json({ error: 'At least one preference is required' }, { status: 400 })
     }
 
@@ -84,10 +87,14 @@ export async function POST(request: NextRequest) {
       updateData.block_sort_order = block_sort_order
     }
 
+    if (display_name !== undefined) {
+      updateData.display_name = display_name
+    }
+
     const { data: preferences, error } = await supabaseAdmin
       .from('user_preferences')
       .upsert(updateData)
-      .select('emoji_avatar, background_color, block_sort_order')
+      .select('emoji_avatar, background_color, block_sort_order, display_name')
       .single()
 
     if (error) {
@@ -98,7 +105,8 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ 
       emoji_avatar: preferences.emoji_avatar,
       background_color: preferences.background_color,
-      block_sort_order: preferences.block_sort_order
+      block_sort_order: preferences.block_sort_order,
+      display_name: preferences.display_name
     })
   } catch (error) {
     console.error('User preferences API error:', error)

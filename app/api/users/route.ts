@@ -20,10 +20,10 @@ export async function POST(request: NextRequest) {
     // Get Clerk user info (names and emails)
     const clerkUsers = await getClerkUsers(userIds)
 
-    // Get emoji avatars from user preferences
+    // Get emoji avatars and display names from user preferences
     const { data: preferences, error } = await supabaseAdmin
       .from('user_preferences')
-      .select('user_id, emoji_avatar, background_color')
+      .select('user_id, emoji_avatar, background_color, display_name')
       .in('user_id', userIds)
 
     if (error) {
@@ -37,7 +37,7 @@ export async function POST(request: NextRequest) {
 
       acc[userId] = {
         id: userId,
-        fullName: clerkUser?.fullName || 'Unknown User',
+        fullName: userPrefs?.display_name || clerkUser?.fullName || 'Unknown User',
         emojiAvatar: userPrefs?.emoji_avatar || '😀',
         backgroundColor: userPrefs?.background_color || 'from-blue-50 to-purple-50',
       }

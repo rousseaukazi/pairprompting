@@ -25,7 +25,6 @@ export function ChatPanel({ explorationId, onHighlight }: ChatPanelProps) {
   const [loading, setLoading] = useState(false)
   const [initialLoading, setInitialLoading] = useState(true)
   const messagesEndRef = useRef<HTMLDivElement>(null)
-  const [selectedText, setSelectedText] = useState('')
   const textareaRef = useRef<HTMLTextAreaElement>(null)
   const [highlightMode, setHighlightMode] = useState(false)
   const canvasRef = useRef<HTMLCanvasElement | null>(null)
@@ -66,54 +65,6 @@ export function ChatPanel({ explorationId, onHighlight }: ChatPanelProps) {
 
     loadChatHistory()
   }, [explorationId])
-
-  // Simple selection detector - only detects, doesn't interfere
-  useEffect(() => {
-    const handleSelectionChange = () => {
-      const selection = window.getSelection()
-      const text = selection?.toString().trim()
-      
-      if (text && text.length > 0) {
-        setSelectedText(text)
-      } else {
-        setSelectedText('')
-      }
-    }
-
-    // Use a debounced version to avoid excessive calls
-    let timeoutId: NodeJS.Timeout
-    const debouncedHandler = () => {
-      clearTimeout(timeoutId)
-      timeoutId = setTimeout(handleSelectionChange, 100)
-    }
-
-    document.addEventListener('selectionchange', debouncedHandler)
-    return () => {
-      document.removeEventListener('selectionchange', debouncedHandler)
-      clearTimeout(timeoutId)
-    }
-  }, [])
-
-  // Global keyboard listener for Cmd+Enter - only when text is selected
-  useEffect(() => {
-    const handleGlobalKeyDown = (e: KeyboardEvent) => {
-      if (e.key === 'Enter' && (e.metaKey || e.ctrlKey) && selectedText && onHighlight) {
-        // Don't interfere if user is typing in textarea
-        if (document.activeElement === textareaRef.current) {
-          return
-        }
-        
-        e.preventDefault()
-        onHighlight(selectedText)
-        setSelectedText('')
-        window.getSelection()?.removeAllRanges()
-        toast.success('Block pushed to document!')
-      }
-    }
-
-    document.addEventListener('keydown', handleGlobalKeyDown, { capture: true })
-    return () => document.removeEventListener('keydown', handleGlobalKeyDown, { capture: true })
-  }, [onHighlight, selectedText])
 
   // Manage overlay canvas lifecycle
   useLayoutEffect(() => {
@@ -217,188 +168,125 @@ export function ChatPanel({ explorationId, onHighlight }: ChatPanelProps) {
     console.log('=== Finish Highlight Debug ===')
     const canvas = canvasRef.current
     const offscreenCanvas = offscreenCanvasRef.current
-    let selectedText = ''
+    let selectedContent = ''
+    
     if (canvas && offscreenCanvas) {
       const dpr = window.devicePixelRatio || 1
       const offscreenCtx = offscreenCanvas.getContext('2d')!
       const assistantElems = Array.from(document.querySelectorAll('[data-role="assistant"]')) as HTMLElement[]
       console.log('Assistant elements found:', assistantElems.length)
       
-      // Check which parts of each assistant message were highlighted
-      assistantElems.forEach(bubble => {
-        const fullText = bubble.innerText
-        // Track word positions instead of just word text
-        const highlightedRanges: Array<{start: number, end: number, word: string}> = []
+      // Process each assistant message bubble
+      assistantElems.forEach((bubble, bubbleIndex) => {
+        // Get the React Markdown content
+        const contentElement = bubble.querySelector('.prose') as HTMLElement
+        if (!contentElement) return
         
-        // Get all text nodes in the bubble
+        // Get all text nodes and their positions
+        const textNodes: Array<{node: Node, rect: DOMRect, text: string}> = []
         const walker = document.createTreeWalker(
-          bubble,
+          contentElement,
           NodeFilter.SHOW_TEXT,
           {
             acceptNode: (node) => {
-              // Skip empty text nodes and code blocks
               if (!node.textContent?.trim()) return NodeFilter.FILTER_REJECT
-              if (node.parentElement?.closest('pre, code')) return NodeFilter.FILTER_REJECT
               return NodeFilter.FILTER_ACCEPT
             }
           }
         )
         
-        // Track position in the full text
-        let globalTextPosition = 0
-        
         let textNode: Node | null
         while (textNode = walker.nextNode()) {
-          const text = textNode.textContent || ''
-          
-          // Find where this text node appears in the full text
-          const nodeStartPos = fullText.indexOf(text, globalTextPosition)
-          if (nodeStartPos === -1) continue
-          
           const range = document.createRange()
-          
-          // Split text into words and check each one
-          const words = text.split(/(\s+)/)
-          let currentPos = 0
-          
-          words.forEach(word => {
-            if (!word.trim()) {
-              currentPos += word.length
-              return
-            }
-            
-            // Create range for this word
-            try {
-              range.setStart(textNode!, currentPos)
-              range.setEnd(textNode!, currentPos + word.length)
-              const wordRect = range.getBoundingClientRect()
-              
-              // Check if this word intersects with paint
-              let hasHighlight = false
-              
-              // Sample many points across the word to catch any intersection
-              const samples: number[][] = []
-              const step = 3 // sample every 3 pixels
-              
-              // Sample along the entire width and height of the word
-              for (let x = wordRect.left; x <= wordRect.right; x += step) {
-                for (let y = wordRect.top; y <= wordRect.bottom; y += step) {
-                  samples.push([x, y])
-                }
-              }
-              
-              // Also sample the exact corners and center
-              samples.push(
-                [wordRect.left, wordRect.top],
-                [wordRect.right, wordRect.top],
-                [wordRect.left, wordRect.bottom],
-                [wordRect.right, wordRect.bottom],
-                [wordRect.left + wordRect.width / 2, wordRect.top + wordRect.height / 2]
-              )
-              
-              for (const [x, y] of samples) {
-                const pixelData = offscreenCtx.getImageData(Math.floor(x * dpr), Math.floor(y * dpr), 1, 1).data
-                if (pixelData[3] > 0) {
-                  hasHighlight = true
-                  break
-                }
-              }
-              
-              if (hasHighlight) {
-                const wordStart = nodeStartPos + currentPos
-                const wordEnd = wordStart + word.length
-                highlightedRanges.push({start: wordStart, end: wordEnd, word: word.trim()})
-              }
-            } catch (e) {
-              // Range API can fail on some edge cases
-              console.warn('Range error for word:', word, e)
-            }
-            
-            currentPos += word.length
+          range.selectNodeContents(textNode)
+          const rect = range.getBoundingClientRect()
+          textNodes.push({
+            node: textNode,
+            rect: rect,
+            text: textNode.textContent || ''
           })
-          
-          globalTextPosition = nodeStartPos + text.length
         }
         
-        // Now find complete sentences that contain highlighted words
-        if (highlightedRanges.length > 0) {
-          console.log('Highlighted ranges:', highlightedRanges)
-          console.log('Full bubble text:', fullText)
+        // Check which elements contain highlighted text
+        const highlightedElements = new Set<Element>()
+        
+        // Check each text node for highlight
+        textNodes.forEach(({node, rect}) => {
+          // Sample multiple points across the text node
+          const samples: number[][] = []
+          const step = 3
           
-          // Split text into sentences, treating headers and newlines as boundaries
-          const sentences: Array<{text: string, start: number, end: number}> = []
-          
-          // First split by double newlines to separate paragraphs/sections
-          const lines = fullText.split('\n')
-          let currentPos = 0
-          
-          lines.forEach(line => {
-            const trimmedLine = line.trim()
-            if (!trimmedLine) {
-              currentPos += line.length + 1 // +1 for the newline
-              return
+          for (let x = rect.left; x <= rect.right; x += step) {
+            for (let y = rect.top; y <= rect.bottom; y += step) {
+              samples.push([x, y])
             }
+          }
+          
+          // Check if any sample point has highlight
+          for (const [x, y] of samples) {
+            const pixelData = offscreenCtx.getImageData(Math.floor(x * dpr), Math.floor(y * dpr), 1, 1).data
+            if (pixelData[3] > 0) {
+              // This text node is highlighted, find its parent block element
+              let parent = node.parentElement
+              while (parent && parent !== contentElement) {
+                // Look for block-level elements
+                if (['P', 'H1', 'H2', 'H3', 'H4', 'H5', 'H6', 'LI', 'BLOCKQUOTE', 'PRE', 'DIV'].includes(parent.tagName)) {
+                  highlightedElements.add(parent)
+                  break
+                }
+                parent = parent.parentElement
+              }
+              break
+            }
+          }
+        })
+        
+        // Now extract the markdown content from highlighted elements
+        if (highlightedElements.size > 0) {
+          console.log(`Found ${highlightedElements.size} highlighted elements in bubble ${bubbleIndex}`)
+          
+          // Get the original message content
+          const messageIndex = parseInt(bubble.getAttribute('data-index') || '0')
+          const originalMessage = messages[messageIndex]
+          if (originalMessage && originalMessage.role === 'assistant') {
+            // Parse the markdown to find the corresponding sections
+            const lines = originalMessage.content.split('\n')
+            const selectedLines: string[] = []
+            let currentLineIndex = 0
             
-            // Check if this is a header (ends with :)
-            if (trimmedLine.endsWith(':')) {
-              sentences.push({
-                text: trimmedLine,
-                start: currentPos,
-                end: currentPos + line.length
+            // Convert highlighted elements to their text content for matching
+            const highlightedTexts = Array.from(highlightedElements).map(el => 
+              el.textContent?.trim() || ''
+            ).filter(text => text.length > 0)
+            
+            // Go through each line and check if it's part of highlighted content
+            for (const line of lines) {
+              const lineText = line.replace(/[#*`_~\[\]()]/g, '').trim()
+              
+              // Check if this line matches any highlighted text
+              const isHighlighted = highlightedTexts.some(highlightedText => {
+                return highlightedText.includes(lineText) || lineText.includes(highlightedText)
               })
-            } else {
-              // Split line into sentences by punctuation
-              const sentenceRegex = /[^.!?]*[.!?]+/g
-              let match
-              let lastEnd = 0
               
-              while ((match = sentenceRegex.exec(line)) !== null) {
-                const sentenceText = match[0].trim()
-                if (sentenceText) {
-                  sentences.push({
-                    text: sentenceText,
-                    start: currentPos + match.index,
-                    end: currentPos + match.index + match[0].length
-                  })
-                  lastEnd = match.index + match[0].length
-                }
-              }
-              
-              // Handle text without ending punctuation
-              if (lastEnd < line.length) {
-                const remaining = line.substring(lastEnd).trim()
-                if (remaining) {
-                  sentences.push({
-                    text: remaining,
-                    start: currentPos + lastEnd,
-                    end: currentPos + line.length
-                  })
-                }
+              if (isHighlighted && line.trim()) {
+                selectedLines.push(line)
               }
             }
             
-            currentPos += line.length + 1 // +1 for the newline
-          })
-          
-          console.log('Detected sentences:', sentences)
-          
-          // Check which sentences contain highlighted words
-          sentences.forEach(sentence => {
-            const hasHighlight = highlightedRanges.some(range => 
-              range.start >= sentence.start && range.end <= sentence.end
-            )
-            
-            if (hasHighlight) {
-              console.log('Including sentence:', sentence.text)
-              selectedText += sentence.text + ' '
+            // Join selected lines with proper spacing
+            if (selectedLines.length > 0) {
+              if (selectedContent) {
+                selectedContent += '\n\n' // Add spacing between different selections
+              }
+              selectedContent += selectedLines.join('\n')
             }
-          })
+          }
         }
       })
     }
 
-    selectedText = selectedText.trim()
-    console.log('Selected text:', selectedText)
+    selectedContent = selectedContent.trim()
+    console.log('Selected content with markdown:', selectedContent)
 
     // clear and remove canvas
     if (canvas && offscreenCanvas) {
@@ -408,10 +296,11 @@ export function ChatPanel({ explorationId, onHighlight }: ChatPanelProps) {
       offscreenCtx.clearRect(0, 0, offscreenCanvas.width, offscreenCanvas.height)
     }
 
-    if (selectedText && onHighlight) {
-      onHighlight(selectedText)
+    if (selectedContent && onHighlight) {
+      onHighlight(selectedContent)
       toast.success('Block pushed to document!')
     }
+    
     // remove canvas overlay after timeout
     if (canvas) {
       canvas.remove()
@@ -439,7 +328,7 @@ export function ChatPanel({ explorationId, onHighlight }: ChatPanelProps) {
       window.removeEventListener('keydown', down)
       window.removeEventListener('keyup', up)
     }
-  }, [highlightMode])
+  }, [highlightMode, messages])
 
   // Pointer move to mark assistant messages
   useEffect(() => {
@@ -537,15 +426,6 @@ export function ChatPanel({ explorationId, onHighlight }: ChatPanelProps) {
       setLoading(false)
       // Re-focus the textarea so the user can keep typing
       textareaRef.current?.focus()
-    }
-  }
-
-  const handlePushBlock = () => {
-    if (selectedText && onHighlight) {
-      onHighlight(selectedText)
-      setSelectedText('')
-      window.getSelection()?.removeAllRanges()
-      toast.success('Block pushed to document!')
     }
   }
 
@@ -674,19 +554,6 @@ export function ChatPanel({ explorationId, onHighlight }: ChatPanelProps) {
       </div>
 
       <div className="border-t p-4">
-        {selectedText && (
-          <div className="mb-2 p-2 bg-primary/10 rounded flex items-center justify-between">
-            <p className="text-sm text-primary">Selected text • Press Cmd+Enter to push</p>
-            <Button
-              size="sm"
-              onClick={handlePushBlock}
-              className="gap-1"
-            >
-              <ArrowUpRight className="w-3 h-3" />
-              Push Block
-            </Button>
-          </div>
-        )}
         <div className="flex gap-2 items-center">
           {/* Mobile highlight toggle */}
           {isMobile() && (
