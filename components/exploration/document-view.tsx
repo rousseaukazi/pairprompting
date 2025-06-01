@@ -7,6 +7,7 @@ import { useAuth } from '@clerk/nextjs'
 import { UserAvatar } from '@/components/user-avatar'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
+import rehypeRaw from 'rehype-raw'
 import type { Block, Comment } from '@/lib/supabase'
 
 type BlockWithComments = Block & {
@@ -410,8 +411,13 @@ export function DocumentView({ explorationId, title }: DocumentViewProps) {
                 </div>
                 
                 <div className="prose prose-sm max-w-none prose-headings:text-gray-900 prose-p:text-gray-900 prose-p:mb-3 prose-p:leading-relaxed prose-strong:text-gray-900 prose-em:text-gray-700 prose-code:text-gray-800 prose-code:bg-gray-200 prose-code:px-1 prose-code:rounded prose-pre:bg-gray-800 prose-pre:text-gray-100 prose-ul:mb-3 prose-ol:mb-3 prose-li:mb-1 prose-blockquote:border-l-4 prose-blockquote:border-gray-300 prose-blockquote:pl-4 prose-blockquote:italic prose-hr:my-4">
+                  {(() => {
+                    console.log('Block content:', block.content)
+                    return null
+                  })()}
                   <ReactMarkdown 
                     remarkPlugins={[remarkGfm]}
+                    rehypePlugins={[rehypeRaw]}
                     components={{
                       p: ({ children }) => <p className="mb-3 last:mb-0">{children}</p>,
                       br: () => <br className="mb-2" />,
@@ -423,6 +429,9 @@ export function DocumentView({ explorationId, title }: DocumentViewProps) {
                       h3: ({ children }) => <h3 className="mb-2 mt-4 first:mt-0">{children}</h3>,
                       blockquote: ({ children }) => <blockquote className="my-4 border-l-4 border-gray-300 pl-4 italic">{children}</blockquote>,
                       hr: () => <hr className="my-6 border-gray-300" />,
+                      u: ({ children }) => <u className="underline">{children}</u>,
+                      em: ({ children }) => <em className="italic">{children}</em>,
+                      strong: ({ children }) => <strong className="font-bold">{children}</strong>,
                       table: ({ children }) => (
                         <div className="overflow-x-auto my-4">
                           <table className="min-w-full border-collapse border border-border bg-card rounded-lg shadow-sm">

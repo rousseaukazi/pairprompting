@@ -2,7 +2,7 @@
 
 import { useState, useRef, useEffect, useLayoutEffect } from 'react'
 import { Button } from '@/components/ui/button'
-import { Send, Loader2, ArrowUpRight, Highlighter, Check } from 'lucide-react'
+import { Send, Loader2, ArrowUpRight, Highlighter, Check, X } from 'lucide-react'
 import { toast } from 'sonner'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
@@ -29,6 +29,9 @@ export function ChatPanel({ explorationId, onHighlight }: ChatPanelProps) {
   const [highlightMode, setHighlightMode] = useState(false)
   const canvasRef = useRef<HTMLCanvasElement | null>(null)
   const offscreenCanvasRef = useRef<HTMLCanvasElement | null>(null)
+  const [reviewModalOpen, setReviewModalOpen] = useState(false)
+  const [reviewContent, setReviewContent] = useState('')
+  const reviewEditorRef = useRef<HTMLDivElement>(null)
 
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
@@ -296,9 +299,10 @@ export function ChatPanel({ explorationId, onHighlight }: ChatPanelProps) {
       offscreenCtx.clearRect(0, 0, offscreenCanvas.width, offscreenCanvas.height)
     }
 
-    if (selectedContent && onHighlight) {
-      onHighlight(selectedContent)
-      toast.success('Block pushed to document!')
+    if (selectedContent) {
+      // Show review modal instead of immediately pushing
+      setReviewContent(selectedContent)
+      setReviewModalOpen(true)
     }
     
     // remove canvas overlay after timeout
@@ -313,7 +317,8 @@ export function ChatPanel({ explorationId, onHighlight }: ChatPanelProps) {
   // Desktop: listen for Shift key
   useEffect(() => {
     const down = (e: KeyboardEvent) => {
-      if (e.key === 'Shift' && !highlightMode) {
+      // Don't start highlight mode if review modal is open
+      if (e.key === 'Shift' && !highlightMode && !reviewModalOpen) {
         startHighlight()
       }
     }
@@ -328,7 +333,7 @@ export function ChatPanel({ explorationId, onHighlight }: ChatPanelProps) {
       window.removeEventListener('keydown', down)
       window.removeEventListener('keyup', up)
     }
-  }, [highlightMode, messages])
+  }, [highlightMode, messages, reviewModalOpen])
 
   // Pointer move to mark assistant messages
   useEffect(() => {
@@ -455,6 +460,64 @@ export function ChatPanel({ explorationId, onHighlight }: ChatPanelProps) {
     return () => clearTimeout(timer)
   }, [initialLoading])
 
+  // Handle keyboard shortcuts in review modal
+  useEffect(() => {
+    if (!reviewModalOpen) return
+
+    // Focus the editor when modal opens
+    setTimeout(() => {
+      if (reviewEditorRef.current) {
+        reviewEditorRef.current.focus()
+        // Place cursor at end
+        const range = document.createRange()
+        const sel = window.getSelection()
+        range.selectNodeContents(reviewEditorRef.current)
+        range.collapse(false)
+        sel?.removeAllRanges()
+        sel?.addRange(range)
+      }
+    }, 100)
+
+    const handleKeyDown = (e: KeyboardEvent) => {
+      // Escape to close
+      if (e.key === 'Escape') {
+        e.preventDefault()
+        setReviewModalOpen(false)
+        setReviewContent('')
+      }
+      
+      // Cmd/Ctrl + Enter to push
+      if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {
+        e.preventDefault()
+        if (reviewEditorRef.current) {
+          // Get the HTML content directly
+          let content = reviewEditorRef.current.innerHTML
+          
+          // Only convert line breaks
+          content = content.replace(/<br>/g, '\n')
+          content = content.replace(/<div>/g, '\n')
+          content = content.replace(/<\/div>/g, '')
+          
+          // Clean up any empty paragraphs
+          content = content.replace(/<p><\/p>/g, '')
+          
+          console.log('Raw HTML:', reviewEditorRef.current.innerHTML)
+          console.log('Final content being pushed:', content)
+          
+          if (content.trim() && onHighlight) {
+            onHighlight(content.trim())
+            toast.success('Block pushed to document!')
+            setReviewModalOpen(false)
+            setReviewContent('')
+          }
+        }
+      }
+    }
+
+    document.addEventListener('keydown', handleKeyDown)
+    return () => document.removeEventListener('keydown', handleKeyDown)
+  }, [reviewModalOpen, onHighlight])
+
   if (initialLoading) {
     return (
       <div className="flex flex-col h-full bg-background rounded-lg border border-border">
@@ -562,12 +625,16 @@ export function ChatPanel({ explorationId, onHighlight }: ChatPanelProps) {
               size="icon"
               variant={highlightMode ? 'secondary' : 'ghost'}
               onClick={() => {
+                // Don't toggle highlight mode if review modal is open
+                if (reviewModalOpen) return
+                
                 if (highlightMode) {
                   finishHighlight()
                 } else {
                   startHighlight()
                 }
               }}
+              disabled={reviewModalOpen}
             >
               {highlightMode ? <Check className="w-4 h-4" /> : <Highlighter className="w-4 h-4" />}
             </Button>
@@ -586,6 +653,138 @@ export function ChatPanel({ explorationId, onHighlight }: ChatPanelProps) {
           </Button>
         </div>
       </div>
+
+      {/* Review Modal */}
+      {reviewModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center">
+          {/* Backdrop */}
+          <div 
+            className="absolute inset-0 bg-black bg-opacity-50" 
+            onClick={() => {
+              setReviewModalOpen(false)
+              setReviewContent('')
+            }}
+          />
+          
+          {/* Modal */}
+          <div className="relative bg-white dark:bg-gray-900 rounded-lg shadow-xl p-6 w-full max-w-2xl mx-4 max-h-[80vh] flex flex-col">
+            <div className="flex items-center justify-between mb-4">
+              <h2 className="text-xl font-bold">Review & Edit Block</h2>
+              <Button 
+                variant="ghost" 
+                size="sm" 
+                onClick={() => {
+                  setReviewModalOpen(false)
+                  setReviewContent('')
+                }}
+              >
+                <X className="w-4 h-4" />
+              </Button>
+            </div>
+
+            <div className="flex-1 overflow-y-auto mb-4">
+              <div
+                ref={reviewEditorRef}
+                contentEditable
+                suppressContentEditableWarning
+                onBlur={() => {
+                  // Extract text content when focus is lost
+                  if (reviewEditorRef.current) {
+                    const text = reviewEditorRef.current.innerText || ''
+                    setReviewContent(text)
+                  }
+                }}
+                onKeyDown={(e) => {
+                  // Cmd/Ctrl + B for bold
+                  if (e.key === 'b' && (e.metaKey || e.ctrlKey)) {
+                    e.preventDefault()
+                    document.execCommand('bold', false)
+                  }
+                  // Cmd/Ctrl + I for italic
+                  if (e.key === 'i' && (e.metaKey || e.ctrlKey)) {
+                    e.preventDefault()
+                    document.execCommand('italic', false)
+                  }
+                  // Cmd/Ctrl + U for underline
+                  if (e.key === 'u' && (e.metaKey || e.ctrlKey)) {
+                    e.preventDefault()
+                    document.execCommand('underline', false)
+                  }
+                }}
+                className="w-full h-full min-h-[300px] p-4 bg-card text-foreground border border-border rounded-md focus:outline-none focus:border-gray-400 prose prose-sm max-w-none"
+                style={{
+                  boxShadow: 'none'
+                }}
+                dangerouslySetInnerHTML={{
+                  __html: (() => {
+                    let html = reviewContent
+                    // Convert markdown to HTML for display
+                    // Process bold first (double asterisks)
+                    html = html.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>')
+                    // Then process italics (single asterisks)
+                    html = html.replace(/\*([^*]+)\*/g, '<em>$1</em>')
+                    // Convert newlines to breaks
+                    html = html.replace(/\n/g, '<br>')
+                    return html
+                  })()
+                }}
+              />
+            </div>
+
+            <div className="text-sm text-gray-500 mb-4">
+              <span>Tip: Use ⌘B for bold, ⌘I for italic, ⌘U for underline</span>
+            </div>
+
+            <div className="flex gap-3">
+              <Button
+                variant="outline"
+                onClick={() => {
+                  setReviewModalOpen(false)
+                  setReviewContent('')
+                }}
+                className="flex-1"
+              >
+                Cancel
+              </Button>
+              <Button
+                onClick={() => {
+                  if (reviewEditorRef.current) {
+                    // Get the HTML content directly
+                    let content = reviewEditorRef.current.innerHTML
+                    
+                    // Only convert line breaks
+                    content = content.replace(/<br>/g, '\n')
+                    content = content.replace(/<div>/g, '\n')
+                    content = content.replace(/<\/div>/g, '')
+                    
+                    // Clean up any empty paragraphs
+                    content = content.replace(/<p><\/p>/g, '')
+                    
+                    console.log('Raw HTML:', reviewEditorRef.current.innerHTML)
+                    console.log('Final content being pushed:', content)
+                    
+                    if (content.trim() && onHighlight) {
+                      onHighlight(content.trim())
+                      toast.success('Block pushed to document!')
+                      setReviewModalOpen(false)
+                      setReviewContent('')
+                    }
+                  }
+                }}
+                className="flex-1 gap-2"
+              >
+                <ArrowUpRight className="w-4 h-4" />
+                Push Block
+              </Button>
+            </div>
+
+            <div className="flex justify-center gap-4 text-xs text-gray-500 mt-3">
+              <span>Press <kbd className="px-1.5 py-0.5 bg-gray-100 dark:bg-gray-800 rounded border border-gray-300 dark:border-gray-700 font-mono">⌘↵</kbd> to push</span>
+              <span>Press <kbd className="px-1.5 py-0.5 bg-gray-100 dark:bg-gray-800 rounded border border-gray-300 dark:border-gray-700 font-mono">Esc</kbd> to cancel</span>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 } 
