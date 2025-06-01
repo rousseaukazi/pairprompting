@@ -14,7 +14,7 @@ export async function POST(request: NextRequest) {
 
     console.log('🚀 Block push API called by user:', userId)
 
-    const { explorationId, content, position } = await request.json()
+    const { explorationId, content, context, position } = await request.json()
 
     if (!explorationId || !content) {
       return NextResponse.json({ error: 'Missing required fields' }, { status: 400 })
@@ -53,6 +53,7 @@ export async function POST(request: NextRequest) {
         exploration_id: explorationId,
         author_id: userId,
         content,
+        context,
         position: nextPosition,
       })
       .select()

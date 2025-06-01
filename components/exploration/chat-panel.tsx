@@ -16,7 +16,7 @@ type Message = {
 
 type ChatPanelProps = {
   explorationId: string
-  onHighlight?: (text: string) => void
+  onHighlight?: (text: string, context?: string) => void
 }
 
 export function ChatPanel({ explorationId, onHighlight }: ChatPanelProps) {
@@ -31,6 +31,7 @@ export function ChatPanel({ explorationId, onHighlight }: ChatPanelProps) {
   const offscreenCanvasRef = useRef<HTMLCanvasElement | null>(null)
   const [reviewModalOpen, setReviewModalOpen] = useState(false)
   const [reviewContent, setReviewContent] = useState('')
+  const [reviewContext, setReviewContext] = useState('')
   const reviewEditorRef = useRef<HTMLDivElement>(null)
 
   const scrollToBottom = () => {
@@ -172,6 +173,7 @@ export function ChatPanel({ explorationId, onHighlight }: ChatPanelProps) {
     const canvas = canvasRef.current
     const offscreenCanvas = offscreenCanvasRef.current
     let selectedContent = ''
+    const highlightedMessageIndices: number[] = []
     
     if (canvas && offscreenCanvas) {
       const dpr = window.devicePixelRatio || 1
@@ -252,6 +254,9 @@ export function ChatPanel({ explorationId, onHighlight }: ChatPanelProps) {
           const messageIndex = parseInt(bubble.getAttribute('data-index') || '0')
           const originalMessage = messages[messageIndex]
           if (originalMessage && originalMessage.role === 'assistant') {
+            // Track which message indices have highlighted content
+            highlightedMessageIndices.push(messageIndex)
+            
             // Parse the markdown to find the corresponding sections
             const lines = originalMessage.content.split('\n')
             const selectedLines: string[] = []
@@ -290,6 +295,22 @@ export function ChatPanel({ explorationId, onHighlight }: ChatPanelProps) {
 
     selectedContent = selectedContent.trim()
     console.log('Selected content with markdown:', selectedContent)
+    
+    // Find user context based on highlighted message indices
+    let userContext = ''
+    if (highlightedMessageIndices.length > 0) {
+      // Get the earliest highlighted message index
+      const earliestIndex = Math.min(...highlightedMessageIndices)
+      
+      // Look for user messages before the earliest highlighted assistant message
+      for (let i = earliestIndex - 1; i >= 0; i--) {
+        if (messages[i].role === 'user') {
+          userContext = messages[i].content
+          break
+        }
+      }
+    }
+    console.log('Detected user context:', userContext)
 
     // clear and remove canvas
     if (canvas && offscreenCanvas) {
@@ -302,6 +323,7 @@ export function ChatPanel({ explorationId, onHighlight }: ChatPanelProps) {
     if (selectedContent) {
       // Show review modal instead of immediately pushing
       setReviewContent(selectedContent)
+      setReviewContext(userContext)
       setReviewModalOpen(true)
     }
     
@@ -484,6 +506,7 @@ export function ChatPanel({ explorationId, onHighlight }: ChatPanelProps) {
         e.preventDefault()
         setReviewModalOpen(false)
         setReviewContent('')
+        setReviewContext('')
       }
       
       // Cmd/Ctrl + Enter to push
@@ -505,10 +528,11 @@ export function ChatPanel({ explorationId, onHighlight }: ChatPanelProps) {
           console.log('Final content being pushed:', content)
           
           if (content.trim() && onHighlight) {
-            onHighlight(content.trim())
+            onHighlight(content.trim(), reviewContext)
             toast.success('Block pushed to document!')
             setReviewModalOpen(false)
             setReviewContent('')
+            setReviewContext('')
           }
         }
       }
@@ -516,7 +540,7 @@ export function ChatPanel({ explorationId, onHighlight }: ChatPanelProps) {
 
     document.addEventListener('keydown', handleKeyDown)
     return () => document.removeEventListener('keydown', handleKeyDown)
-  }, [reviewModalOpen, onHighlight])
+  }, [reviewModalOpen, onHighlight, reviewContext])
 
   if (initialLoading) {
     return (
@@ -663,6 +687,7 @@ export function ChatPanel({ explorationId, onHighlight }: ChatPanelProps) {
             onClick={() => {
               setReviewModalOpen(false)
               setReviewContent('')
+              setReviewContext('')
             }}
           />
           
@@ -676,10 +701,26 @@ export function ChatPanel({ explorationId, onHighlight }: ChatPanelProps) {
                 onClick={() => {
                   setReviewModalOpen(false)
                   setReviewContent('')
+                  setReviewContext('')
                 }}
               >
                 <X className="w-4 h-4" />
               </Button>
+            </div>
+
+            {/* Context input field */}
+            <div className="mb-4">
+              <label htmlFor="context" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                What question/comment triggered this response?
+              </label>
+              <textarea
+                id="context"
+                value={reviewContext}
+                onChange={(e) => setReviewContext(e.target.value)}
+                placeholder="Enter the question or comment that led to this response..."
+                className="w-full p-3 bg-card text-foreground border border-border rounded-md resize-none focus:outline-none focus:ring-2 focus:ring-primary placeholder:text-muted-foreground"
+                rows={2}
+              />
             </div>
 
             <div className="flex-1 overflow-y-auto mb-4">
@@ -741,6 +782,7 @@ export function ChatPanel({ explorationId, onHighlight }: ChatPanelProps) {
                 onClick={() => {
                   setReviewModalOpen(false)
                   setReviewContent('')
+                  setReviewContext('')
                 }}
                 className="flex-1"
               >
@@ -764,10 +806,11 @@ export function ChatPanel({ explorationId, onHighlight }: ChatPanelProps) {
                     console.log('Final content being pushed:', content)
                     
                     if (content.trim() && onHighlight) {
-                      onHighlight(content.trim())
+                      onHighlight(content.trim(), reviewContext)
                       toast.success('Block pushed to document!')
                       setReviewModalOpen(false)
                       setReviewContent('')
+                      setReviewContext('')
                     }
                   }
                 }}

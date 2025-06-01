@@ -88,7 +88,7 @@ export function ExplorationClient({ exploration, userId }: ExplorationClientProp
     }
   }, [showExplorationDropdown])
 
-  const handlePushBlock = async (content: string) => {
+  const handlePushBlock = async (content: string, context?: string) => {
     try {
       const response = await fetch('/api/push', {
         method: 'POST',
@@ -98,6 +98,7 @@ export function ExplorationClient({ exploration, userId }: ExplorationClientProp
         body: JSON.stringify({
           explorationId: exploration.id,
           content,
+          context,
           position: 0, // You could make this dynamic based on current blocks
         }),
       })

@@ -35,6 +35,7 @@ export type Block = {
   exploration_id: string
   author_id: string
   content: string
+  context?: string
   position: number
   created_at: string
 }

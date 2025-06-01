@@ -410,6 +410,15 @@ export function DocumentView({ explorationId, title }: DocumentViewProps) {
                   </div>
                 </div>
                 
+                {/* Display context if available */}
+                {block.context && (
+                  <div className="mb-3 p-3 bg-gray-50 dark:bg-gray-800 rounded-md border border-gray-200 dark:border-gray-700">
+                    <p className="text-sm text-gray-600 dark:text-gray-400 italic">
+                      <span className="font-medium">Question:</span> {block.context}
+                    </p>
+                  </div>
+                )}
+                
                 <div className="prose prose-sm max-w-none prose-headings:text-gray-900 prose-p:text-gray-900 prose-p:mb-3 prose-p:leading-relaxed prose-strong:text-gray-900 prose-em:text-gray-700 prose-code:text-gray-800 prose-code:bg-gray-200 prose-code:px-1 prose-code:rounded prose-pre:bg-gray-800 prose-pre:text-gray-100 prose-ul:mb-3 prose-ol:mb-3 prose-li:mb-1 prose-blockquote:border-l-4 prose-blockquote:border-gray-300 prose-blockquote:pl-4 prose-blockquote:italic prose-hr:my-4">
                   {(() => {
                     console.log('Block content:', block.content)
