@@ -52,8 +52,8 @@ export async function POST(request: NextRequest) {
       .insert({
         exploration_id: explorationId,
         author_id: userId,
-        content,
-        context,
+        content: content,
+        context: context,
         position: nextPosition,
       })
       .select()

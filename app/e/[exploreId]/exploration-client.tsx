@@ -104,13 +104,16 @@ export function ExplorationClient({ exploration, userId }: ExplorationClientProp
       })
 
       if (!response.ok) {
-        throw new Error('Failed to push block')
+        const errorData = await response.json().catch(() => ({}))
+        throw new Error(errorData.error || 'Failed to push block')
       }
 
       // The document view will update automatically via real-time subscription
+      return await response.json()
     } catch (error) {
       console.error('Error pushing block:', error)
       toast.error('Failed to push block')
+      throw error // Re-throw so the UI can handle it
     }
   }
 

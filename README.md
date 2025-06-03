@@ -16,7 +16,7 @@ The best place to explore topics and share insights from your AI conversations w
 - **Backend**: Vercel Edge Functions
 - **Database**: Supabase (PostgreSQL)
 - **Auth**: Clerk
-- **AI**: OpenAI API
+- **AI**: Perplexity API (with web search capabilities)
 - **Real-time**: Supabase Realtime
 
 ## Setup Instructions
@@ -42,9 +42,10 @@ npm install
 3. Run the SQL schema in `supabase/schema.sql` in the SQL editor
 4. Copy your API keys from Settings > API
 
-### 4. Set up OpenAI
+### 4. Set up Perplexity AI
 
-1. Get your API key from [platform.openai.com](https://platform.openai.com)
+1. Get your API key from [perplexity.ai](https://www.perplexity.ai/settings/api)
+2. The API provides access to web search-enabled AI models
 
 ### 5. Configure environment variables
 
@@ -64,8 +65,8 @@ NEXT_PUBLIC_SUPABASE_URL=https://your-project.supabase.co
 NEXT_PUBLIC_SUPABASE_ANON_KEY=your-anon-key
 SUPABASE_SERVICE_ROLE_KEY=your-service-role-key
 
-# OpenAI
-OPENAI_API_KEY=sk-...
+# Perplexity AI
+PERPLEXITY_API_KEY=pplx-...
 
 # WebSocket (for development)
 NEXT_PUBLIC_WS_URL=ws://localhost:1234

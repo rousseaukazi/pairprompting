@@ -414,7 +414,7 @@ export function DocumentView({ explorationId, title }: DocumentViewProps) {
                 {block.context && (
                   <div className="mb-3 p-3 bg-gray-50 dark:bg-gray-800 rounded-md border border-gray-200 dark:border-gray-700">
                     <p className="text-sm text-gray-600 dark:text-gray-400 italic">
-                      <span className="font-medium">Question:</span> {block.context}
+                      {block.context}
                     </p>
                   </div>
                 )}

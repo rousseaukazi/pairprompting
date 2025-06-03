@@ -2,7 +2,7 @@
 
 import { useState, useRef, useEffect, useLayoutEffect } from 'react'
 import { Button } from '@/components/ui/button'
-import { Send, Loader2, ArrowUpRight, Highlighter, Check, X } from 'lucide-react'
+import { Send, Loader2, ArrowUpRight, Highlighter, Check, X, Sparkles } from 'lucide-react'
 import { toast } from 'sonner'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
@@ -32,7 +32,10 @@ export function ChatPanel({ explorationId, onHighlight }: ChatPanelProps) {
   const [reviewModalOpen, setReviewModalOpen] = useState(false)
   const [reviewContent, setReviewContent] = useState('')
   const [reviewContext, setReviewContext] = useState('')
+  const [pushingBlock, setPushingBlock] = useState(false)
+  const [polishingContent, setPolishingContent] = useState(false)
   const reviewEditorRef = useRef<HTMLDivElement>(null)
+  const [showPolishTooltip, setShowPolishTooltip] = useState(false)
 
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
@@ -296,21 +299,33 @@ export function ChatPanel({ explorationId, onHighlight }: ChatPanelProps) {
     selectedContent = selectedContent.trim()
     console.log('Selected content with markdown:', selectedContent)
     
-    // Find user context based on highlighted message indices
+    // Find user contexts based on highlighted message indices
     let userContext = ''
     if (highlightedMessageIndices.length > 0) {
-      // Get the earliest highlighted message index
-      const earliestIndex = Math.min(...highlightedMessageIndices)
+      const userContexts: string[] = []
       
-      // Look for user messages before the earliest highlighted assistant message
-      for (let i = earliestIndex - 1; i >= 0; i--) {
-        if (messages[i].role === 'user') {
-          userContext = messages[i].content
-          break
+      // For each highlighted assistant message, find its preceding user message
+      highlightedMessageIndices.forEach(assistantIndex => {
+        // Look backwards from this assistant message to find the user message
+        for (let i = assistantIndex - 1; i >= 0; i--) {
+          if (messages[i].role === 'user') {
+            // Add this user message if we haven't already added it
+            if (!userContexts.includes(messages[i].content)) {
+              userContexts.push(messages[i].content)
+            }
+            break
+          }
         }
+      })
+      
+      // Join all user contexts with line breaks
+      if (userContexts.length > 1) {
+        userContext = userContexts.map((context, index) => `${index + 1}. ${context}`).join('\n\n')
+      } else if (userContexts.length === 1) {
+        userContext = userContexts[0]
       }
     }
-    console.log('Detected user context:', userContext)
+    console.log('Detected user contexts:', userContext)
 
     // clear and remove canvas
     if (canvas && offscreenCanvas) {
@@ -528,11 +543,22 @@ export function ChatPanel({ explorationId, onHighlight }: ChatPanelProps) {
           console.log('Final content being pushed:', content)
           
           if (content.trim() && onHighlight) {
-            onHighlight(content.trim(), reviewContext)
-            toast.success('Block pushed to document!')
-            setReviewModalOpen(false)
-            setReviewContent('')
-            setReviewContext('')
+            setPushingBlock(true)
+            // Handle async push in a promise
+            Promise.resolve(onHighlight(content.trim(), reviewContext))
+              .then(() => {
+                toast.success('Block pushed to document!')
+                setReviewModalOpen(false)
+                setReviewContent('')
+                setReviewContext('')
+              })
+              .catch((error) => {
+                console.error('Failed to push block:', error)
+                toast.error('Failed to push block')
+              })
+              .finally(() => {
+                setPushingBlock(false)
+              })
           }
         }
       }
@@ -541,6 +567,69 @@ export function ChatPanel({ explorationId, onHighlight }: ChatPanelProps) {
     document.addEventListener('keydown', handleKeyDown)
     return () => document.removeEventListener('keydown', handleKeyDown)
   }, [reviewModalOpen, onHighlight, reviewContext])
+
+  const handlePolish = async () => {
+    if (!reviewContext && !reviewContent) {
+      toast.error('No content to polish')
+      return
+    }
+
+    setPolishingContent(true)
+    
+    try {
+      // Get the current HTML content
+      let currentContent = reviewContent
+      if (reviewEditorRef.current) {
+        currentContent = reviewEditorRef.current.innerHTML
+        // Clean up for sending to AI
+        currentContent = currentContent.replace(/<br>/g, '\n')
+        currentContent = currentContent.replace(/<div>/g, '\n')
+        currentContent = currentContent.replace(/<\/div>/g, '')
+        currentContent = currentContent.replace(/<p><\/p>/g, '')
+      }
+      
+      const response = await fetch('/api/polish', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          context: reviewContext,
+          content: currentContent,
+        }),
+      })
+
+      if (!response.ok) {
+        throw new Error('Failed to polish content')
+      }
+
+      const { context: polishedContext, content: polishedContent } = await response.json()
+      
+      // Update the fields with polished content
+      setReviewContext(polishedContext || reviewContext)
+      setReviewContent(polishedContent || currentContent)
+      
+      // Update the editor with the polished content
+      if (reviewEditorRef.current && polishedContent) {
+        // Convert markdown and newlines to HTML for display
+        let html = polishedContent
+        // Convert markdown bold to HTML
+        html = html.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>')
+        // Convert markdown italic to HTML  
+        html = html.replace(/\*([^*]+)\*/g, '<em>$1</em>')
+        // Convert newlines to breaks
+        html = html.replace(/\n/g, '<br>')
+        reviewEditorRef.current.innerHTML = html
+      }
+      
+      toast.success('Content polished with AI!')
+    } catch (error) {
+      console.error('Error polishing content:', error)
+      toast.error('Failed to polish content')
+    } finally {
+      setPolishingContent(false)
+    }
+  }
 
   if (initialLoading) {
     return (
@@ -593,6 +682,57 @@ export function ChatPanel({ explorationId, onHighlight }: ChatPanelProps) {
                         h3: ({ children }) => <h3 className="mb-2 mt-4 first:mt-0">{children}</h3>,
                         blockquote: ({ children }) => <blockquote className="my-4 border-l-4 border-gray-300 pl-4 italic">{children}</blockquote>,
                         hr: () => <hr className="my-6 border-gray-300" />,
+                        a: ({ href, children }) => {
+                          // Check if this is a citation (contains only a number, with or without brackets)
+                          const childText = String(children)
+                          const isCitation = /^(\[\d+\]|\d+)$/.test(childText)
+                          
+                          if (isCitation && href) {
+                            const citationNumber = childText.match(/\d+/)?.[0]
+                            
+                            return (
+                              <span className="inline-flex items-center group relative">
+                                <a
+                                  href={href}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  className="inline-flex items-center justify-center ml-0.5 px-1.5 py-0.5 text-[10px] font-medium bg-blue-100 dark:bg-blue-600 text-blue-700 dark:text-blue-100 rounded-full hover:bg-blue-200 dark:hover:bg-blue-700 transition-colors duration-200 no-underline"
+                                >
+                                  {citationNumber}
+                                </a>
+                                
+                                {/* Hover preview */}
+                                <div className="absolute bottom-full left-0 mb-2 opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all duration-200 z-50 pointer-events-none">
+                                  <div className="bg-white dark:bg-gray-900 rounded-lg shadow-lg border border-gray-200 dark:border-gray-700 p-3 w-64">
+                                    <div className="text-xs text-gray-600 dark:text-gray-400 mb-1">Source {citationNumber}</div>
+                                    <div className="text-xs text-blue-600 dark:text-blue-400 break-all">
+                                      {(() => {
+                                        try {
+                                          return new URL(href).hostname
+                                        } catch {
+                                          return href
+                                        }
+                                      })()}
+                                    </div>
+                                    <div className="text-[10px] text-gray-500 dark:text-gray-500 mt-1">Click to open</div>
+                                  </div>
+                                </div>
+                              </span>
+                            )
+                          }
+                          
+                          // Regular link
+                          return (
+                            <a 
+                              href={href} 
+                              target="_blank" 
+                              rel="noopener noreferrer"
+                              className="text-blue-600 hover:text-blue-800 underline"
+                            >
+                              {children}
+                            </a>
+                          )
+                        },
                         table: ({ children }) => (
                           <div className="overflow-x-auto my-4">
                             <table className="min-w-full border-collapse border border-border bg-card rounded-lg shadow-sm">
@@ -720,13 +860,14 @@ export function ChatPanel({ explorationId, onHighlight }: ChatPanelProps) {
                 placeholder="Enter the question or comment that led to this response..."
                 className="w-full p-3 bg-card text-foreground border border-border rounded-md resize-none focus:outline-none focus:ring-2 focus:ring-primary placeholder:text-muted-foreground"
                 rows={2}
+                disabled={pushingBlock || polishingContent}
               />
             </div>
 
-            <div className="flex-1 overflow-y-auto mb-4">
+            <div className="flex-1 overflow-y-auto mb-4 relative">
               <div
                 ref={reviewEditorRef}
-                contentEditable
+                contentEditable={!pushingBlock && !polishingContent}
                 suppressContentEditableWarning
                 onBlur={() => {
                   // Extract text content when focus is lost
@@ -770,10 +911,29 @@ export function ChatPanel({ explorationId, onHighlight }: ChatPanelProps) {
                   })()
                 }}
               />
-            </div>
-
-            <div className="text-sm text-gray-500 mb-4">
-              <span>Tip: Use ⌘B for bold, ⌘I for italic, ⌘U for underline</span>
+              
+              {/* Polish with AI button positioned inside the text editor area */}
+              <div className="absolute bottom-2 right-2">
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  onClick={handlePolish}
+                  disabled={pushingBlock || polishingContent || (!reviewContext && !reviewContent)}
+                  onMouseEnter={() => setShowPolishTooltip(true)}
+                  onMouseLeave={() => setShowPolishTooltip(false)}
+                >
+                  {polishingContent ? (
+                    <Loader2 className="w-4 h-4 animate-spin" />
+                  ) : (
+                    <Sparkles className="w-4 h-4" />
+                  )}
+                </Button>
+                {showPolishTooltip && (
+                  <div className="absolute bottom-full right-0 mb-2 px-2 py-1 text-xs bg-gray-900 text-white rounded whitespace-nowrap pointer-events-none">
+                    Enhance with AI
+                  </div>
+                )}
+              </div>
             </div>
 
             <div className="flex gap-3">
@@ -788,6 +948,8 @@ export function ChatPanel({ explorationId, onHighlight }: ChatPanelProps) {
               >
                 Cancel
               </Button>
+              
+              {/* Push Block button with hover state */}
               <Button
                 onClick={() => {
                   if (reviewEditorRef.current) {
@@ -806,24 +968,41 @@ export function ChatPanel({ explorationId, onHighlight }: ChatPanelProps) {
                     console.log('Final content being pushed:', content)
                     
                     if (content.trim() && onHighlight) {
-                      onHighlight(content.trim(), reviewContext)
-                      toast.success('Block pushed to document!')
-                      setReviewModalOpen(false)
-                      setReviewContent('')
-                      setReviewContext('')
+                      setPushingBlock(true)
+                      // Handle async push in a promise
+                      Promise.resolve(onHighlight(content.trim(), reviewContext))
+                        .then(() => {
+                          toast.success('Block pushed to document!')
+                          setReviewModalOpen(false)
+                          setReviewContent('')
+                          setReviewContext('')
+                        })
+                        .catch((error) => {
+                          console.error('Failed to push block:', error)
+                          toast.error('Failed to push block')
+                        })
+                        .finally(() => {
+                          setPushingBlock(false)
+                        })
                     }
                   }
                 }}
-                className="flex-1 gap-2"
+                className="flex-1 gap-2 group"
+                disabled={pushingBlock}
               >
-                <ArrowUpRight className="w-4 h-4" />
-                Push Block
+                {pushingBlock ? (
+                  <>
+                    <Loader2 className="w-4 h-4 animate-spin" />
+                    Pushing...
+                  </>
+                ) : (
+                  <>
+                    <ArrowUpRight className="w-4 h-4" />
+                    <span className="group-hover:hidden">Push Block</span>
+                    <span className="hidden group-hover:inline">⌘↵</span>
+                  </>
+                )}
               </Button>
-            </div>
-
-            <div className="flex justify-center gap-4 text-xs text-gray-500 mt-3">
-              <span>Press <kbd className="px-1.5 py-0.5 bg-gray-100 dark:bg-gray-800 rounded border border-gray-300 dark:border-gray-700 font-mono">⌘↵</kbd> to push</span>
-              <span>Press <kbd className="px-1.5 py-0.5 bg-gray-100 dark:bg-gray-800 rounded border border-gray-300 dark:border-gray-700 font-mono">Esc</kbd> to cancel</span>
             </div>
           </div>
         </div>
