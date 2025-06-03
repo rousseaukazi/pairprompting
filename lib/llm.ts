@@ -87,19 +87,29 @@ export async function* streamCompletion(
 
     let buffer = ''
     let citations: string[] = []
+    let citationMetadata: Array<{url: string, title?: string, date?: string}> = []
     let contentBuffer = ''
     
-    // Helper function to replace citation references with markdown links
-    const processCitations = (text: string, citations: string[]): string => {
+    // Helper function to replace citation references with markdown links that include metadata
+    const processCitations = (text: string, citations: string[], metadata: Array<{url: string, title?: string, date?: string}>): string => {
       if (citations.length === 0) return text
       
-      // Replace [1], [2], etc. with markdown links, adding a space before if needed
+      // Replace [1], [2], etc. with markdown links that include metadata as hash parameters
       return text.replace(/(\s?)\[(\d+)\]/g, (match, space, num) => {
         const index = parseInt(num) - 1
         if (index >= 0 && index < citations.length) {
           // Add a space if there isn't one already
           const prefix = space || ' '
-          return `${prefix}[${num}](${citations[index]})`
+          const meta = metadata[index] || { url: citations[index] }
+          
+          // Append metadata as URL hash parameters for the component to parse
+          const metadataParams = new URLSearchParams()
+          if (meta.title) metadataParams.set('title', meta.title)
+          if (meta.date) metadataParams.set('date', meta.date)
+          
+          const urlWithMetadata = meta.url + (metadataParams.toString() ? '#' + metadataParams.toString() : '')
+          
+          return `${prefix}[${num}](${urlWithMetadata})`
         }
         return match
       })
@@ -124,7 +134,7 @@ export async function* streamCompletion(
           if (data === '[DONE]') {
             // Process any remaining content in the buffer
             if (contentBuffer) {
-              yield processCitations(contentBuffer, citations)
+              yield processCitations(contentBuffer, citations, citationMetadata)
               contentBuffer = ''
             }
             
@@ -136,9 +146,18 @@ export async function* streamCompletion(
           try {
             const parsed = JSON.parse(data)
             
-            // Capture citations from the first chunk (they come at the top level)
+            // Capture citations and search results from the first chunk
             if (parsed.citations && parsed.citations.length > 0 && citations.length === 0) {
               citations = parsed.citations
+              
+              // Also capture search results metadata if available
+              if (parsed.search_results && Array.isArray(parsed.search_results)) {
+                citationMetadata = parsed.search_results.map((result: any) => ({
+                  url: result.url,
+                  title: result.title,
+                  date: result.date
+                }))
+              }
             }
             
             // Handle content from the delta
@@ -156,13 +175,13 @@ export async function* streamCompletion(
                 if (!afterBracket.includes('[')) {
                   // Safe to process up to and including the last bracket
                   const toProcess = contentBuffer.substring(0, lastBracket + 1)
-                  const processed = processCitations(toProcess, citations)
+                  const processed = processCitations(toProcess, citations, citationMetadata)
                   yield processed
                   contentBuffer = contentBuffer.substring(lastBracket + 1)
                 }
               } else if (contentBuffer.length > 100 && !contentBuffer.includes('[')) {
                 // If no brackets and buffer is getting long, process it
-                yield processCitations(contentBuffer, citations)
+                yield processCitations(contentBuffer, citations, citationMetadata)
                 contentBuffer = ''
               }
             }
@@ -194,7 +213,7 @@ export async function* streamCompletion(
     
     // Process any remaining content
     if (contentBuffer) {
-      yield processCitations(contentBuffer, citations)
+      yield processCitations(contentBuffer, citations, citationMetadata)
     }
     
     // Don't show sources section - only inline citations

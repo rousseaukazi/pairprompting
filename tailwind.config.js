@@ -84,13 +84,13 @@ module.exports = {
             opacity: "1",
           },
         },
+        "fade-out": {
+          from: { opacity: "1" },
+          to: { opacity: "0" },
+        },
         "fade-in": {
-          "0%": {
-            opacity: "0",
-          },
-          "100%": {
-            opacity: "1",
-          },
+          from: { opacity: "0" },
+          to: { opacity: "1" },
         },
       },
       animation: {
@@ -98,6 +98,7 @@ module.exports = {
         "accordion-up": "accordion-up 0.2s ease-out",
         "slide-in-bottom": "slide-in-bottom 0.5s ease-out",
         "slide-in-top": "slide-in-top 0.5s ease-out",
+        "fade-out": "fade-out 0.5s ease-out",
         "fade-in": "fade-in 0.5s ease-out",
       },
     },
