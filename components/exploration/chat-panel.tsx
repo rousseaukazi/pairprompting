@@ -155,6 +155,7 @@ export function ChatPanel({ explorationId, onHighlight }: ChatPanelProps) {
       const onPointerDown = (e: PointerEvent) => {
         console.log('Pointer down at:', e.clientX, e.clientY)
         drawing = true
+        document.body.classList.add('drawing')
         offscreenCtx.beginPath()
         offscreenCtx.moveTo(e.clientX, e.clientY)
       }
@@ -166,6 +167,7 @@ export function ChatPanel({ explorationId, onHighlight }: ChatPanelProps) {
       }
       const onPointerUp = () => {
         drawing = false
+        document.body.classList.remove('drawing')
       }
 
       canvas.style.pointerEvents = 'auto'
@@ -178,6 +180,7 @@ export function ChatPanel({ explorationId, onHighlight }: ChatPanelProps) {
         canvas.removeEventListener('pointerdown', onPointerDown)
         window.removeEventListener('pointermove', onPointerMove)
         window.removeEventListener('pointerup', onPointerUp)
+        document.body.classList.remove('drawing')
       }
     }
   }, [highlightMode])
