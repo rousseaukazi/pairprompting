@@ -312,8 +312,8 @@ export function ChatPanel({ explorationId, onHighlight }: ChatPanelProps) {
               })
               
               if (isHighlighted && line.trim()) {
-                // Push the original line with citations stripped to simple format
-                selectedLines.push(stripCitations(line))
+                // Push the original line with full citations preserved
+                selectedLines.push(line)
               }
             }
             
@@ -560,39 +560,23 @@ export function ChatPanel({ explorationId, onHighlight }: ChatPanelProps) {
       // Cmd/Ctrl + Enter to push
       if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {
         e.preventDefault()
-        if (reviewEditorRef.current) {
-          // Get the HTML content directly
-          let content = reviewEditorRef.current.innerHTML
-          
-          // Only convert line breaks
-          content = content.replace(/<br>/g, '\n')
-          content = content.replace(/<div>/g, '\n')
-          content = content.replace(/<\/div>/g, '')
-          
-          // Clean up any empty paragraphs
-          content = content.replace(/<p><\/p>/g, '')
-          
-          console.log('Raw HTML:', reviewEditorRef.current.innerHTML)
-          console.log('Final content being pushed:', content)
-          
-          if (content.trim() && onHighlight) {
-            setPushingBlock(true)
-            // Handle async push in a promise
-            Promise.resolve(onHighlight(content.trim(), reviewContext))
-              .then(() => {
-                toast.success('Block pushed to document!')
-                setReviewModalOpen(false)
-                setReviewContent('')
-                setReviewContext('')
-              })
-              .catch((error) => {
-                console.error('Failed to push block:', error)
-                toast.error('Failed to push block')
-              })
-              .finally(() => {
-                setPushingBlock(false)
-              })
-          }
+        if (reviewContent.trim() && onHighlight) {
+          setPushingBlock(true)
+          // Use the markdown content directly
+          Promise.resolve(onHighlight(reviewContent.trim(), reviewContext))
+            .then(() => {
+              toast.success('Block pushed to document!')
+              setReviewModalOpen(false)
+              setReviewContent('')
+              setReviewContext('')
+            })
+            .catch((error) => {
+              console.error('Failed to push block:', error)
+              toast.error('Failed to push block')
+            })
+            .finally(() => {
+              setPushingBlock(false)
+            })
         }
       }
     }
@@ -646,15 +630,56 @@ export function ChatPanel({ explorationId, onHighlight }: ChatPanelProps) {
       if (reviewEditorRef.current && polishedContent) {
         // Convert markdown and newlines to HTML for display
         let html = polishedContent
-        // Convert markdown bold to HTML
-        html = html.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>')
-        // Convert markdown italic to HTML  
-        html = html.replace(/\*([^*]+)\*/g, '<em>$1</em>')
-        // Convert citation numbers to styled spans
+        
+        // First, handle citations with URLs - convert [n](url#metadata) to styled spans
+        html = html.replace(/\[(\d+)\]\(([^)]+)\)/g, (match: string, num: string, url: string) => {
+          // Parse metadata from URL if present
+          let displayTitle = ''
+          try {
+            const urlObj = new URL(url, window.location.origin)
+            const hashParams = new URLSearchParams(urlObj.hash.slice(1))
+            if (hashParams.has('title')) {
+              displayTitle = hashParams.get('title') || ''
+            }
+          } catch (e) {
+            // Ignore URL parsing errors
+          }
+          
+          // Store the full URL in a data attribute for recovery
+          return `<span class="inline-flex items-center justify-center ml-0.5 px-1.5 py-0.5 text-[10px] font-medium bg-blue-100 dark:bg-blue-600 text-blue-700 dark:text-blue-100 rounded-full" data-citation-url="${url.replace(/"/g, '&quot;')}" title="${displayTitle || 'Source ' + num}">${num}</span>`
+        })
+        
+        // Then handle plain citations [n] (if any remain)
         html = html.replace(/\[(\d+)\]/g, '<span class="inline-flex items-center justify-center ml-0.5 px-1.5 py-0.5 text-[10px] font-medium bg-blue-100 dark:bg-blue-600 text-blue-700 dark:text-blue-100 rounded-full">$1</span>')
+        
+        // Convert markdown to HTML for display
+        // Process bold first (double asterisks)
+        html = html.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>')
+        // Then process italics (single asterisks)
+        html = html.replace(/\*([^*]+)\*/g, '<em>$1</em>')
+        // Process inline code
+        html = html.replace(/`([^`]+)`/g, '<code class="px-1 py-0.5 bg-gray-200 dark:bg-gray-700 text-gray-800 dark:text-gray-200 text-sm">$1</code>')
+        
+        // Process headers
+        html = html.replace(/^### (.+)$/gm, '<h3 class="text-lg font-semibold mb-2">$1</h3>')
+        html = html.replace(/^## (.+)$/gm, '<h2 class="text-xl font-semibold mb-3">$1</h2>')
+        html = html.replace(/^# (.+)$/gm, '<h1 class="text-2xl font-bold mb-4">$1</h1>')
+        
+        // Process lists
+        html = html.replace(/^- (.+)$/gm, '<li class="ml-4">• $1</li>')
+        html = html.replace(/^\* (.+)$/gm, '<li class="ml-4">• $1</li>')
+        html = html.replace(/^\d+\. (.+)$/gm, '<li class="ml-4">$&</li>')
+        
+        // Process blockquotes
+        html = html.replace(/^> (.+)$/gm, '<blockquote class="border-l-4 border-gray-300 pl-4 italic my-2">$1</blockquote>')
+        
         // Convert newlines to breaks
         html = html.replace(/\n/g, '<br>')
+        
         reviewEditorRef.current.innerHTML = html
+        
+        // Also update the reviewContent state with the markdown
+        setReviewContent(polishedContent)
       }
       
       toast.success('Content polished with AI!')
@@ -668,7 +693,7 @@ export function ChatPanel({ explorationId, onHighlight }: ChatPanelProps) {
 
   if (initialLoading) {
     return (
-      <div className="flex flex-col h-full bg-background rounded-lg border border-border">
+      <div className="flex flex-col h-full bg-background border border-border">
         <div className="flex-1 flex items-center justify-center">
           <div className="flex items-center gap-2 text-gray-500">
             <Loader2 className="w-4 h-4 animate-spin" />
@@ -680,7 +705,7 @@ export function ChatPanel({ explorationId, onHighlight }: ChatPanelProps) {
   }
 
   return (
-    <div className="flex flex-col h-full bg-background rounded-lg border border-border">
+    <div className="flex flex-col h-full bg-background border border-border">
       <div className="flex-1 overflow-y-auto p-4 space-y-4">
         {messages.length === 0 ? (
           <div className="flex items-center justify-center h-full text-gray-500">
@@ -693,7 +718,7 @@ export function ChatPanel({ explorationId, onHighlight }: ChatPanelProps) {
               className={`flex ${message.role === 'user' ? 'justify-end' : 'justify-start'}`}
             >
               <div
-                className={`assistant-bubble max-w-[80%] rounded-lg p-3 ${
+                className={`assistant-bubble max-w-[80%] p-3 ${
                   message.role === 'user'
                     ? 'bg-primary text-primary-foreground'
                     : 'bg-muted text-foreground'
@@ -703,7 +728,7 @@ export function ChatPanel({ explorationId, onHighlight }: ChatPanelProps) {
                 data-message-role={message.role}
               >
                 {message.role === 'assistant' ? (
-                  <div className="prose prose-sm max-w-none prose-headings:text-gray-900 prose-p:text-gray-900 prose-p:mb-3 prose-p:leading-relaxed prose-strong:text-gray-900 prose-em:text-gray-700 prose-code:text-gray-800 prose-code:bg-gray-200 prose-code:px-1 prose-code:rounded prose-pre:bg-gray-800 prose-pre:text-gray-100 prose-ul:mb-3 prose-ol:mb-3 prose-li:mb-1 prose-blockquote:border-l-4 prose-blockquote:border-gray-300 prose-blockquote:pl-4 prose-blockquote:italic prose-hr:my-4 prose-table:my-4 prose-thead:bg-gray-50 prose-th:border prose-th:border-gray-300 prose-th:px-3 prose-th:py-2 prose-th:font-semibold prose-td:border prose-td:border-gray-300 prose-td:px-3 prose-td:py-2">
+                  <div className="prose prose-sm max-w-none prose-headings:text-gray-900 prose-p:text-gray-900 prose-p:mb-3 prose-p:leading-relaxed prose-strong:text-gray-900 prose-em:text-gray-700 prose-code:text-gray-800 prose-code:bg-gray-200 prose-code:px-1 prose-pre:bg-gray-800 prose-pre:text-gray-100 prose-ul:mb-3 prose-ol:mb-3 prose-li:mb-1 prose-blockquote:border-l-4 prose-blockquote:border-gray-300 prose-blockquote:pl-4 prose-blockquote:italic prose-hr:my-4 prose-table:my-4 prose-thead:bg-gray-50 prose-th:border prose-th:border-gray-300 prose-th:px-3 prose-th:py-2 prose-th:font-semibold prose-td:border prose-td:border-gray-300 prose-td:px-3 prose-td:py-2">
                     <ReactMarkdown 
                       remarkPlugins={[remarkGfm]}
                       components={{
@@ -780,7 +805,7 @@ export function ChatPanel({ explorationId, onHighlight }: ChatPanelProps) {
                                 
                                 {/* Enhanced hover preview */}
                                 <span className="absolute bottom-full left-0 mb-2 opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all duration-200 z-50 pointer-events-none">
-                                  <span className="bg-white dark:bg-gray-900 rounded-lg shadow-xl border border-gray-200 dark:border-gray-700 p-4 w-80 max-w-sm block">
+                                  <span className="bg-white dark:bg-gray-900 shadow-xl border border-gray-200 dark:border-gray-700 p-4 w-80 max-w-sm block">
                                     {/* Title */}
                                     {metadata.title && (
                                       <span 
@@ -859,7 +884,7 @@ export function ChatPanel({ explorationId, onHighlight }: ChatPanelProps) {
                           )
                         },
                         table: ({ children }) => (
-                          <table className="min-w-full border-collapse border border-border bg-card rounded-lg shadow-sm my-4 overflow-x-auto block">
+                          <table className="min-w-full border-collapse border border-border bg-card shadow-sm my-4 overflow-x-auto block">
                             {children}
                           </table>
                         ),
@@ -895,7 +920,7 @@ export function ChatPanel({ explorationId, onHighlight }: ChatPanelProps) {
         )}
         {loading && (
           <div className="flex justify-start">
-            <div className="bg-muted rounded-lg p-3">
+            <div className="bg-muted p-3">
               <Loader2 className="w-4 h-4 animate-spin" />
             </div>
           </div>
@@ -932,7 +957,7 @@ export function ChatPanel({ explorationId, onHighlight }: ChatPanelProps) {
             onChange={(e) => setInput(e.target.value)}
             onKeyDown={handleInputKeyDown}
             placeholder="Type your message..."
-            className="flex-1 resize-none rounded-md bg-card text-foreground border border-border p-2 focus:outline-none focus:ring-2 focus:ring-primary placeholder:text-muted-foreground"
+            className="flex-1 resize-none bg-card text-foreground border border-border p-2 focus:outline-none focus:ring-2 focus:ring-primary placeholder:text-muted-foreground"
             rows={1}
           />
           <Button onClick={handleSend} disabled={loading || !input.trim()}>
@@ -955,7 +980,7 @@ export function ChatPanel({ explorationId, onHighlight }: ChatPanelProps) {
           />
           
           {/* Modal */}
-          <div className="relative bg-white dark:bg-gray-900 rounded-lg shadow-xl p-6 w-full max-w-2xl mx-4 max-h-[80vh] flex flex-col">
+          <div className="relative bg-white dark:bg-gray-900 shadow-xl p-6 w-full max-w-2xl mx-4 max-h-[80vh] flex flex-col">
             <div className="flex items-center justify-between mb-4">
               <h2 className="text-xl font-bold">Review & Edit Block</h2>
               <Button 
@@ -981,7 +1006,7 @@ export function ChatPanel({ explorationId, onHighlight }: ChatPanelProps) {
                 value={reviewContext}
                 onChange={(e) => setReviewContext(e.target.value)}
                 placeholder="Enter the question or comment that led to this response..."
-                className="w-full p-3 bg-card text-foreground border border-border rounded-md resize-none focus:outline-none focus:ring-2 focus:ring-primary placeholder:text-muted-foreground"
+                className="w-full p-3 bg-card text-foreground border border-border resize-none focus:outline-none focus:ring-2 focus:ring-primary placeholder:text-muted-foreground"
                 rows={2}
                 disabled={pushingBlock || polishingContent}
               />
@@ -993,10 +1018,48 @@ export function ChatPanel({ explorationId, onHighlight }: ChatPanelProps) {
                 contentEditable={!pushingBlock && !polishingContent}
                 suppressContentEditableWarning
                 onBlur={() => {
-                  // Extract text content when focus is lost
+                  // Extract content while preserving markdown formatting
                   if (reviewEditorRef.current) {
-                    const text = reviewEditorRef.current.innerText || ''
-                    setReviewContent(text)
+                    let content = reviewEditorRef.current.innerHTML
+                    
+                    // Convert HTML back to markdown
+                    // Convert headers back
+                    content = content.replace(/<h1[^>]*>(.*?)<\/h1>/g, '# $1')
+                    content = content.replace(/<h2[^>]*>(.*?)<\/h2>/g, '## $1')
+                    content = content.replace(/<h3[^>]*>(.*?)<\/h3>/g, '### $1')
+                    // Convert blockquotes back
+                    content = content.replace(/<blockquote[^>]*>(.*?)<\/blockquote>/g, '> $1')
+                    // Convert list items back
+                    content = content.replace(/<li[^>]*>• (.*?)<\/li>/g, '- $1')
+                    content = content.replace(/<li[^>]*>(\d+\. .*?)<\/li>/g, '$1')
+                    // Convert citation spans back - check for data-citation-url first
+                    content = content.replace(/<span[^>]*data-citation-url="([^"]*)"[^>]*>(\d+)<\/span>/g, (match: string, url: string, num: string) => {
+                      // Decode the URL
+                      const decodedUrl = url.replace(/&quot;/g, '"')
+                      return `[${num}](${decodedUrl})`
+                    })
+                    // Convert plain citation spans (without URLs) back to [n]
+                    content = content.replace(/<span[^>]*class="[^"]*"[^>]*>(\d+)<\/span>/g, '[$1]')
+                    // Convert strong/bold tags back to **
+                    content = content.replace(/<strong>(.*?)<\/strong>/g, '**$1**')
+                    // Convert em/italic tags back to *
+                    content = content.replace(/<em>(.*?)<\/em>/g, '*$1*')
+                    // Convert underline tags
+                    content = content.replace(/<u>(.*?)<\/u>/g, '$1')
+                    // Convert code tags back to backticks
+                    content = content.replace(/<code[^>]*>(.*?)<\/code>/g, '`$1`')
+                    // Convert line breaks
+                    content = content.replace(/<br>/g, '\n')
+                    content = content.replace(/<div>/g, '\n')
+                    content = content.replace(/<\/div>/g, '')
+                    // Clean up any remaining HTML tags
+                    content = content.replace(/<[^>]*>/g, '')
+                    // Decode HTML entities
+                    const textarea = document.createElement('textarea')
+                    textarea.innerHTML = content
+                    content = textarea.value
+                    
+                    setReviewContent(content.trim())
                   }
                 }}
                 onKeyDown={(e) => {
@@ -1016,22 +1079,59 @@ export function ChatPanel({ explorationId, onHighlight }: ChatPanelProps) {
                     document.execCommand('underline', false)
                   }
                 }}
-                className="w-full h-full min-h-[300px] p-4 bg-card text-foreground border border-border rounded-md focus:outline-none focus:border-gray-400 prose prose-sm max-w-none"
+                className="w-full h-full min-h-[300px] p-4 bg-card text-foreground border border-border focus:outline-none focus:border-gray-400 prose prose-sm max-w-none prose-headings:text-gray-900 prose-p:text-gray-900 prose-p:mb-3 prose-p:leading-relaxed prose-strong:text-gray-900 prose-em:text-gray-700 prose-code:text-gray-800 prose-code:bg-gray-200 prose-code:px-1 prose-pre:bg-gray-800 prose-pre:text-gray-100 prose-ul:mb-3 prose-ol:mb-3 prose-li:mb-1 prose-blockquote:border-l-4 prose-blockquote:border-gray-300 prose-blockquote:pl-4 prose-blockquote:italic prose-hr:my-4"
                 style={{
                   boxShadow: 'none'
                 }}
                 dangerouslySetInnerHTML={{
                   __html: (() => {
                     let html = reviewContent
+                    
+                    // First, handle citations with URLs - convert [n](url#metadata) to styled spans
+                    html = html.replace(/\[(\d+)\]\(([^)]+)\)/g, (match: string, num: string, url: string) => {
+                      // Parse metadata from URL if present
+                      let displayTitle = ''
+                      try {
+                        const urlObj = new URL(url, window.location.origin)
+                        const hashParams = new URLSearchParams(urlObj.hash.slice(1))
+                        if (hashParams.has('title')) {
+                          displayTitle = hashParams.get('title') || ''
+                        }
+                      } catch (e) {
+                        // Ignore URL parsing errors
+                      }
+                      
+                      // Store the full URL in a data attribute for recovery
+                      return `<span class="inline-flex items-center justify-center ml-0.5 px-1.5 py-0.5 text-[10px] font-medium bg-blue-100 dark:bg-blue-600 text-blue-700 dark:text-blue-100 rounded-full" data-citation-url="${url.replace(/"/g, '&quot;')}" title="${displayTitle || 'Source ' + num}">${num}</span>`
+                    })
+                    
+                    // Then handle plain citations [n] (if any remain)
+                    html = html.replace(/\[(\d+)\]/g, '<span class="inline-flex items-center justify-center ml-0.5 px-1.5 py-0.5 text-[10px] font-medium bg-blue-100 dark:bg-blue-600 text-blue-700 dark:text-blue-100 rounded-full">$1</span>')
+                    
                     // Convert markdown to HTML for display
                     // Process bold first (double asterisks)
                     html = html.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>')
                     // Then process italics (single asterisks)
                     html = html.replace(/\*([^*]+)\*/g, '<em>$1</em>')
-                    // Convert citation numbers to styled spans
-                    html = html.replace(/\[(\d+)\]/g, '<span class="inline-flex items-center justify-center ml-0.5 px-1.5 py-0.5 text-[10px] font-medium bg-blue-100 dark:bg-blue-600 text-blue-700 dark:text-blue-100 rounded-full">$1</span>')
+                    // Process inline code
+                    html = html.replace(/`([^`]+)`/g, '<code class="px-1 py-0.5 bg-gray-200 dark:bg-gray-700 text-gray-800 dark:text-gray-200 text-sm">$1</code>')
+                    
+                    // Process headers
+                    html = html.replace(/^### (.+)$/gm, '<h3 class="text-lg font-semibold mb-2">$1</h3>')
+                    html = html.replace(/^## (.+)$/gm, '<h2 class="text-xl font-semibold mb-3">$1</h2>')
+                    html = html.replace(/^# (.+)$/gm, '<h1 class="text-2xl font-bold mb-4">$1</h1>')
+                    
+                    // Process lists
+                    html = html.replace(/^- (.+)$/gm, '<li class="ml-4">• $1</li>')
+                    html = html.replace(/^\* (.+)$/gm, '<li class="ml-4">• $1</li>')
+                    html = html.replace(/^\d+\. (.+)$/gm, '<li class="ml-4">$&</li>')
+                    
+                    // Process blockquotes
+                    html = html.replace(/^> (.+)$/gm, '<blockquote class="border-l-4 border-gray-300 pl-4 italic my-2">$1</blockquote>')
+                    
                     // Convert newlines to breaks
                     html = html.replace(/\n/g, '<br>')
+                    
                     return html
                   })()
                 }}
@@ -1077,43 +1177,27 @@ export function ChatPanel({ explorationId, onHighlight }: ChatPanelProps) {
               {/* Push Block button with hover state */}
               <Button
                 onClick={() => {
-                  if (reviewEditorRef.current) {
-                    // Get the HTML content directly
-                    let content = reviewEditorRef.current.innerHTML
-                    
-                    // Only convert line breaks
-                    content = content.replace(/<br>/g, '\n')
-                    content = content.replace(/<div>/g, '\n')
-                    content = content.replace(/<\/div>/g, '')
-                    
-                    // Clean up any empty paragraphs
-                    content = content.replace(/<p><\/p>/g, '')
-                    
-                    console.log('Raw HTML:', reviewEditorRef.current.innerHTML)
-                    console.log('Final content being pushed:', content)
-                    
-                    if (content.trim() && onHighlight) {
-                      setPushingBlock(true)
-                      // Handle async push in a promise
-                      Promise.resolve(onHighlight(content.trim(), reviewContext))
-                        .then(() => {
-                          toast.success('Block pushed to document!')
-                          setReviewModalOpen(false)
-                          setReviewContent('')
-                          setReviewContext('')
-                        })
-                        .catch((error) => {
-                          console.error('Failed to push block:', error)
-                          toast.error('Failed to push block')
-                        })
-                        .finally(() => {
-                          setPushingBlock(false)
-                        })
-                    }
+                  if (reviewContent.trim() && onHighlight) {
+                    setPushingBlock(true)
+                    // Use the markdown content directly
+                    Promise.resolve(onHighlight(reviewContent.trim(), reviewContext))
+                      .then(() => {
+                        toast.success('Block pushed to document!')
+                        setReviewModalOpen(false)
+                        setReviewContent('')
+                        setReviewContext('')
+                      })
+                      .catch((error) => {
+                        console.error('Failed to push block:', error)
+                        toast.error('Failed to push block')
+                      })
+                      .finally(() => {
+                        setPushingBlock(false)
+                      })
                   }
                 }}
                 className="flex-1 gap-2 group"
-                disabled={pushingBlock}
+                disabled={pushingBlock || !reviewContent.trim()}
               >
                 {pushingBlock ? (
                   <>

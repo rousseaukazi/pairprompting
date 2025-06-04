@@ -58,7 +58,17 @@
   }
 }
 
-/* Custom scrollbar */
+/* Hide all scrollbars globally */
+* {
+  -ms-overflow-style: none;  /* IE and Edge */
+  scrollbar-width: none;  /* Firefox */
+}
+
+*::-webkit-scrollbar {
+  display: none;  /* Chrome, Safari and Opera */
+}
+
+/* Custom scrollbar - commented out since we're hiding all scrollbars
 ::-webkit-scrollbar {
   width: 8px;
   height: 8px;
@@ -75,6 +85,7 @@
 ::-webkit-scrollbar-thumb:hover {
   @apply bg-muted-foreground/50;
 }
+*/
 
 /* Enhanced selection styles */
 ::selection {
@@ -99,16 +110,15 @@ button, [role="button"] {
   @apply bg-yellow-300/30;
 }
 
-/* Hide scrollbar by default */
+/* Scrollbar classes - no longer needed since scrollbars are hidden globally
 .scrollbar-hide {
-  -ms-overflow-style: none;  /* IE and Edge */
-  scrollbar-width: none;  /* Firefox */
+  -ms-overflow-style: none;
+  scrollbar-width: none;
 }
 .scrollbar-hide::-webkit-scrollbar {
-  display: none;  /* Chrome, Safari and Opera */
+  display: none;
 }
 
-/* Show scrollbar on hover */
 .scrollbar-default:hover {
   -ms-overflow-style: auto;
   scrollbar-width: thin;
@@ -126,6 +136,7 @@ button, [role="button"] {
 .scrollbar-default:hover::-webkit-scrollbar-thumb:hover {
   @apply bg-gray-500;
 }
+*/
 
 /* Highlight mode cursor */
 body.highlight-cursor {
