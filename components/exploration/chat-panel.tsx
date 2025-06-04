@@ -37,6 +37,25 @@ export function ChatPanel({ explorationId, onHighlight }: ChatPanelProps) {
   const reviewEditorRef = useRef<HTMLDivElement>(null)
   const [showPolishTooltip, setShowPolishTooltip] = useState(false)
 
+  // Helper function to strip citations from markdown text
+  const stripCitations = (text: string): string => {
+    // Replace [n](url#metadata) with just [n]
+    return text.replace(/\[(\d+)\]\([^)]+\)/g, '[$1]')
+  }
+
+  // Helper function to get plain text without any markdown or citations
+  const getPlainText = (text: string): string => {
+    // First strip citations to simple format
+    let plain = stripCitations(text)
+    // Then remove all markdown formatting
+    plain = plain.replace(/\*\*([^*]+)\*\*/g, '$1') // Bold
+    plain = plain.replace(/\*([^*]+)\*/g, '$1') // Italic
+    plain = plain.replace(/`([^`]+)`/g, '$1') // Code
+    plain = plain.replace(/\[(\d+)\]/g, '[$1]') // Keep citation numbers
+    plain = plain.replace(/[#_~]/g, '') // Other markdown chars
+    return plain.trim()
+  }
+
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
   }
@@ -263,7 +282,6 @@ export function ChatPanel({ explorationId, onHighlight }: ChatPanelProps) {
             // Parse the markdown to find the corresponding sections
             const lines = originalMessage.content.split('\n')
             const selectedLines: string[] = []
-            let currentLineIndex = 0
             
             // Convert highlighted elements to their text content for matching
             const highlightedTexts = Array.from(highlightedElements).map(el => 
@@ -272,15 +290,27 @@ export function ChatPanel({ explorationId, onHighlight }: ChatPanelProps) {
             
             // Go through each line and check if it's part of highlighted content
             for (const line of lines) {
-              const lineText = line.replace(/[#*`_~\[\]()]/g, '').trim()
+              // Get plain text version of the line for comparison
+              const linePlainText = getPlainText(line)
               
               // Check if this line matches any highlighted text
               const isHighlighted = highlightedTexts.some(highlightedText => {
-                return highlightedText.includes(lineText) || lineText.includes(highlightedText)
+                // Normalize the highlighted text too (remove extra spaces, etc)
+                const normalizedHighlight = highlightedText.replace(/\s+/g, ' ').trim()
+                const normalizedLine = linePlainText.replace(/\s+/g, ' ').trim()
+                
+                // Check for matches (partial or full)
+                return normalizedHighlight.includes(normalizedLine) || 
+                       normalizedLine.includes(normalizedHighlight) ||
+                       // Also check if they share significant overlap
+                       (normalizedLine.length > 10 && normalizedHighlight.length > 10 && 
+                        (normalizedLine.includes(normalizedHighlight.substring(0, 20)) ||
+                         normalizedHighlight.includes(normalizedLine.substring(0, 20))))
               })
               
               if (isHighlighted && line.trim()) {
-                selectedLines.push(line)
+                // Push the original line with citations stripped to simple format
+                selectedLines.push(stripCitations(line))
               }
             }
             
@@ -617,6 +647,8 @@ export function ChatPanel({ explorationId, onHighlight }: ChatPanelProps) {
         html = html.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>')
         // Convert markdown italic to HTML  
         html = html.replace(/\*([^*]+)\*/g, '<em>$1</em>')
+        // Convert citation numbers to styled spans
+        html = html.replace(/\[(\d+)\]/g, '<span class="inline-flex items-center justify-center ml-0.5 px-1.5 py-0.5 text-[10px] font-medium bg-blue-100 dark:bg-blue-600 text-blue-700 dark:text-blue-100 rounded-full">$1</span>')
         // Convert newlines to breaks
         html = html.replace(/\n/g, '<br>')
         reviewEditorRef.current.innerHTML = html
@@ -993,6 +1025,8 @@ export function ChatPanel({ explorationId, onHighlight }: ChatPanelProps) {
                     html = html.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>')
                     // Then process italics (single asterisks)
                     html = html.replace(/\*([^*]+)\*/g, '<em>$1</em>')
+                    // Convert citation numbers to styled spans
+                    html = html.replace(/\[(\d+)\]/g, '<span class="inline-flex items-center justify-center ml-0.5 px-1.5 py-0.5 text-[10px] font-medium bg-blue-100 dark:bg-blue-600 text-blue-700 dark:text-blue-100 rounded-full">$1</span>')
                     // Convert newlines to breaks
                     html = html.replace(/\n/g, '<br>')
                     return html

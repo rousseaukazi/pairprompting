@@ -36,11 +36,13 @@ For Content/Answers:
   - Short paragraphs for readability
 - Preserve technical accuracy and important details
 - Aim for 30-50% reduction in length while keeping all key information
+- IMPORTANT: Preserve any citations in the format [1], [2], etc. Do not remove or modify citation numbers
 
 General Rules:
 - Fix any grammar, spelling, or formatting issues
 - Maintain a professional yet approachable tone
 - Preserve any existing HTML formatting like <strong>, <em>, <u> tags
+- Keep citation numbers [1], [2], [3] etc. exactly as they appear
 - Create a response that feels like it was written as one cohesive piece, not assembled from parts`
 
     const userPrompt = `Please consolidate and rewrite the following:
