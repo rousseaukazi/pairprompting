@@ -749,14 +749,7 @@ export function ChatPanel({ explorationId, onHighlight }: ChatPanelProps) {
                                     {/* Title */}
                                     {metadata.title && (
                                       <span 
-                                        className="text-sm font-medium text-gray-900 dark:text-gray-100 mb-2 block"
-                                        style={{
-                                          display: '-webkit-box',
-                                          WebkitLineClamp: 2,
-                                          WebkitBoxOrient: 'vertical',
-                                          overflow: 'hidden',
-                                          textOverflow: 'ellipsis'
-                                        }}
+                                        className="text-sm font-medium text-gray-900 dark:text-gray-100 mb-2 block truncate"
                                       >
                                         {metadata.title}
                                       </span>
