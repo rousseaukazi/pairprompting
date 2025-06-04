@@ -744,12 +744,12 @@ export function ChatPanel({ explorationId, onHighlight }: ChatPanelProps) {
                                 </a>
                                 
                                 {/* Enhanced hover preview */}
-                                <div className="absolute bottom-full left-0 mb-2 opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all duration-200 z-50 pointer-events-none">
-                                  <div className="bg-white dark:bg-gray-900 rounded-lg shadow-xl border border-gray-200 dark:border-gray-700 p-4 w-80 max-w-sm">
+                                <span className="absolute bottom-full left-0 mb-2 opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all duration-200 z-50 pointer-events-none">
+                                  <span className="bg-white dark:bg-gray-900 rounded-lg shadow-xl border border-gray-200 dark:border-gray-700 p-4 w-80 max-w-sm block">
                                     {/* Title */}
                                     {metadata.title && (
-                                      <div 
-                                        className="text-sm font-medium text-gray-900 dark:text-gray-100 mb-2"
+                                      <span 
+                                        className="text-sm font-medium text-gray-900 dark:text-gray-100 mb-2 block"
                                         style={{
                                           display: '-webkit-box',
                                           WebkitLineClamp: 2,
@@ -759,11 +759,11 @@ export function ChatPanel({ explorationId, onHighlight }: ChatPanelProps) {
                                         }}
                                       >
                                         {metadata.title}
-                                      </div>
+                                      </span>
                                     )}
                                     
                                     {/* Domain and date */}
-                                    <div className="flex items-center gap-2 text-xs text-gray-500 dark:text-gray-400 mb-2">
+                                    <span className="flex items-center gap-2 text-xs text-gray-500 dark:text-gray-400 mb-2">
                                       <span className="text-blue-600 dark:text-blue-400">
                                         {(() => {
                                           try {
@@ -802,18 +802,18 @@ export function ChatPanel({ explorationId, onHighlight }: ChatPanelProps) {
                                           </span>
                                         </>
                                       )}
-                                    </div>
+                                    </span>
                                     
                                     {/* Preview text or fallback */}
-                                    <div className="text-xs text-gray-600 dark:text-gray-300 leading-relaxed">
+                                    <span className="text-xs text-gray-600 dark:text-gray-300 leading-relaxed block">
                                       {metadata.title ? (
                                         <span className="italic">Click to read the full article</span>
                                       ) : (
                                         <span>Source {citationNumber}</span>
                                       )}
-                                    </div>
-                                  </div>
-                                </div>
+                                    </span>
+                                  </span>
+                                </span>
                               </span>
                             )
                           }
@@ -831,11 +831,9 @@ export function ChatPanel({ explorationId, onHighlight }: ChatPanelProps) {
                           )
                         },
                         table: ({ children }) => (
-                          <div className="overflow-x-auto my-4">
-                            <table className="min-w-full border-collapse border border-border bg-card rounded-lg shadow-sm">
-                              {children}
-                            </table>
-                          </div>
+                          <table className="min-w-full border-collapse border border-border bg-card rounded-lg shadow-sm my-4 overflow-x-auto block">
+                            {children}
+                          </table>
                         ),
                         thead: ({ children }) => <thead className="bg-muted">{children}</thead>,
                         tbody: ({ children }) => <tbody className="divide-y divide-border">{children}</tbody>,
