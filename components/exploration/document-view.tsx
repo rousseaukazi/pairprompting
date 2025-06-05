@@ -419,9 +419,11 @@ export function DocumentView({ explorationId, title }: DocumentViewProps) {
                   </div>
                 )}
                 
-                <div className="prose prose-sm max-w-none prose-headings:text-gray-900 prose-p:text-gray-900 prose-p:mb-3 prose-p:leading-relaxed prose-strong:text-gray-900 prose-em:text-gray-700 prose-code:text-gray-800 prose-code:bg-gray-200 prose-code:px-1 prose-pre:bg-gray-800 prose-pre:text-gray-100 prose-ul:mb-3 prose-ol:mb-3 prose-li:mb-1 prose-blockquote:border-l-4 prose-blockquote:border-gray-300 prose-blockquote:pl-4 prose-blockquote:italic prose-hr:my-4">
+                <div className="prose prose-sm max-w-none prose-headings:text-gray-900 dark:prose-headings:text-gray-100 prose-p:text-gray-900 dark:prose-p:text-gray-100 prose-p:mb-3 prose-p:leading-relaxed prose-strong:text-gray-900 dark:prose-strong:text-gray-100 prose-em:text-gray-700 dark:prose-em:text-gray-300 prose-em:italic prose-code:text-gray-800 dark:prose-code:text-gray-200 prose-code:bg-gray-200 dark:prose-code:bg-gray-700 prose-code:px-1 prose-pre:bg-gray-800 prose-pre:text-gray-100 prose-ul:mb-3 prose-ol:mb-3 prose-li:mb-1 prose-blockquote:border-l-4 prose-blockquote:border-gray-300 dark:prose-blockquote:border-gray-600 prose-blockquote:pl-4 prose-blockquote:italic prose-hr:my-4 dark:prose-hr:border-gray-600">
                   {(() => {
+                    console.log('Block id:', block.id)
                     console.log('Block content:', block.content)
+                    console.log('Block content includes asterisks:', block.content.includes('*'))
                     return null
                   })()}
                   <ReactMarkdown 

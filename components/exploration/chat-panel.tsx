@@ -34,8 +34,156 @@ export function ChatPanel({ explorationId, onHighlight }: ChatPanelProps) {
   const [reviewContext, setReviewContext] = useState('')
   const [pushingBlock, setPushingBlock] = useState(false)
   const [polishingContent, setPolishingContent] = useState(false)
-  const reviewEditorRef = useRef<HTMLDivElement>(null)
+  const reviewEditorRef = useRef<HTMLDivElement | null>(null)
   const [showPolishTooltip, setShowPolishTooltip] = useState(false)
+
+  // Helper function to convert markdown to HTML for contentEditable
+  const markdownToHtml = (markdown: string): string => {
+    let html = markdown
+    
+    // Process citations with URLs - make them non-editable
+    html = html.replace(/\[(\d+)\]\(([^)]+)\)/g, (match: string, num: string, url: string) => {
+      return `<span class="inline-flex items-center justify-center ml-0.5 px-1.5 py-0.5 text-[10px] font-medium bg-blue-100 dark:bg-blue-600 text-blue-700 dark:text-blue-100 rounded-full" contenteditable="false" data-citation-url="${url.replace(/"/g, '&quot;')}">${num}</span>`
+    })
+    
+    // Process plain citations - make them non-editable
+    html = html.replace(/\[(\d+)\]/g, '<span class="inline-flex items-center justify-center ml-0.5 px-1.5 py-0.5 text-[10px] font-medium bg-blue-100 dark:bg-blue-600 text-blue-700 dark:text-blue-100 rounded-full" contenteditable="false">$1</span>')
+    
+    // Process code blocks first (triple backticks)
+    html = html.replace(/```([^`]+)```/g, '<pre><code>$1</code></pre>')
+    
+    // Process inline code (single backticks)
+    html = html.replace(/`([^`]+)`/g, '<code>$1</code>')
+    
+    // Process headers
+    html = html.replace(/^### (.+)$/gm, '<h3>$1</h3>')
+    html = html.replace(/^## (.+)$/gm, '<h2>$1</h2>')
+    html = html.replace(/^# (.+)$/gm, '<h1>$1</h1>')
+    
+    // Process bold first (to handle **bold *italic* text**)
+    html = html.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>')
+    
+    // Process italic (but not if it's part of a bold marker)
+    html = html.replace(/(?<![*])\*([^*]+)\*(?![*])/g, '<em>$1</em>')
+    
+    // Process line breaks in paragraphs
+    const lines = html.split('\n')
+    let inList = false
+    let inBlockquote = false
+    let processedLines = []
+    
+    for (let i = 0; i < lines.length; i++) {
+      const line = lines[i].trim()
+      
+      // Handle lists
+      if (line.startsWith('- ')) {
+        if (!inList) {
+          processedLines.push('<ul>')
+          inList = true
+        }
+        processedLines.push('<li>' + line.substring(2) + '</li>')
+      }
+      // Handle blockquotes
+      else if (line.startsWith('> ')) {
+        if (inList) {
+          processedLines.push('</ul>')
+          inList = false
+        }
+        processedLines.push('<blockquote>' + line.substring(2) + '</blockquote>')
+      }
+      // Handle other content
+      else {
+        if (inList) {
+          processedLines.push('</ul>')
+          inList = false
+        }
+        
+        if (line && !line.startsWith('<')) {
+          // Don't wrap if it's already an HTML tag
+          processedLines.push('<p>' + line + '</p>')
+        } else if (line) {
+          processedLines.push(line)
+        }
+      }
+    }
+    
+    // Close any open list
+    if (inList) {
+      processedLines.push('</ul>')
+    }
+    
+    return processedLines.join('')
+  }
+
+  // Helper function to convert HTML from contentEditable to markdown
+  const htmlToMarkdown = (html: string): string => {
+    let content = html
+    
+    console.log('htmlToMarkdown input:', html)
+    
+    // First, handle citation spans with URLs - preserve the full citation format
+    content = content.replace(/<span[^>]*data-citation-url="([^"]*)"[^>]*>(\d+)<\/span>/g, (match: string, url: string, num: string) => {
+      const decodedUrl = url.replace(/&quot;/g, '"')
+      return `[${num}](${decodedUrl})`
+    })
+    
+    // Handle plain citation spans
+    content = content.replace(/<span[^>]*class="[^"]*rounded-full[^"]*"[^>]*>(\d+)<\/span>/g, '[$1]')
+    
+    // Convert headers back
+    content = content.replace(/<h1[^>]*>(.*?)<\/h1>/gi, '# $1')
+    content = content.replace(/<h2[^>]*>(.*?)<\/h2>/gi, '## $1')
+    content = content.replace(/<h3[^>]*>(.*?)<\/h3>/gi, '### $1')
+    
+    // Convert blockquotes back
+    content = content.replace(/<blockquote[^>]*>(.*?)<\/blockquote>/gi, '> $1')
+    
+    // Convert strong/bold tags back to ** (handle both <strong> and <b>)
+    content = content.replace(/<strong[^>]*>(.*?)<\/strong>/gi, '**$1**')
+    content = content.replace(/<b[^>]*>(.*?)<\/b>/gi, '**$1**')
+    
+    // Convert em/italic tags back to * (handle both <em> and <i>)
+    content = content.replace(/<em[^>]*>(.*?)<\/em>/gi, '*$1*')
+    content = content.replace(/<i[^>]*>(.*?)<\/i>/gi, '*$1*')
+    
+    // Convert code tags back to backticks
+    content = content.replace(/<code[^>]*>(.*?)<\/code>/gi, '`$1`')
+    
+    // Handle lists - convert li tags
+    content = content.replace(/<li[^>]*>(.*?)<\/li>/gi, '- $1\n')
+    // Remove ul/ol tags
+    content = content.replace(/<\/?[uo]l[^>]*>/gi, '')
+    
+    // Convert paragraphs to double newlines
+    content = content.replace(/<p[^>]*>(.*?)<\/p>/gi, '$1\n\n')
+    
+    // Convert line breaks
+    content = content.replace(/<br\s*\/?>/gi, '\n')
+    
+    // Remove any remaining div tags but keep their content
+    content = content.replace(/<\/?div[^>]*>/gi, '')
+    
+    // Clean up any remaining HTML tags
+    content = content.replace(/<[^>]*>/g, '')
+    
+    // Decode HTML entities
+    const textarea = document.createElement('textarea')
+    textarea.innerHTML = content
+    content = textarea.value
+    
+    // Clean up extra whitespace
+    content = content.trim()
+    // Replace multiple consecutive newlines with double newline
+    content = content.replace(/\n{3,}/g, '\n\n')
+    // Clean up spaces before newlines
+    content = content.replace(/ +\n/g, '\n')
+    // Clean up spaces after newlines
+    content = content.replace(/\n +/g, '\n')
+    
+    console.log('htmlToMarkdown output:', content)
+    
+    return content
+  }
 
   // Helper function to strip citations from markdown text
   const stripCitations = (text: string): string => {
@@ -530,23 +678,29 @@ export function ChatPanel({ explorationId, onHighlight }: ChatPanelProps) {
     return () => clearTimeout(timer)
   }, [initialLoading])
 
+  // Initialize the editor content when modal opens
+  useEffect(() => {
+    if (reviewModalOpen && reviewEditorRef.current && reviewContent) {
+      // Use the shared function to convert markdown to HTML
+      const html = markdownToHtml(reviewContent)
+      
+      // Set the HTML content
+      reviewEditorRef.current.innerHTML = html
+      
+      // Focus and place cursor at end
+      reviewEditorRef.current.focus()
+      const range = document.createRange()
+      const sel = window.getSelection()
+      range.selectNodeContents(reviewEditorRef.current)
+      range.collapse(false)
+      sel?.removeAllRanges()
+      sel?.addRange(range)
+    }
+  }, [reviewModalOpen, reviewContent])
+
   // Handle keyboard shortcuts in review modal
   useEffect(() => {
     if (!reviewModalOpen) return
-
-    // Focus the editor when modal opens
-    setTimeout(() => {
-      if (reviewEditorRef.current) {
-        reviewEditorRef.current.focus()
-        // Place cursor at end
-        const range = document.createRange()
-        const sel = window.getSelection()
-        range.selectNodeContents(reviewEditorRef.current)
-        range.collapse(false)
-        sel?.removeAllRanges()
-        sel?.addRange(range)
-      }
-    }, 100)
 
     const handleKeyDown = (e: KeyboardEvent) => {
       // Escape to close
@@ -560,132 +714,97 @@ export function ChatPanel({ explorationId, onHighlight }: ChatPanelProps) {
       // Cmd/Ctrl + Enter to push
       if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {
         e.preventDefault()
-        if (reviewContent.trim() && onHighlight) {
-          setPushingBlock(true)
-          // Use the markdown content directly
-          Promise.resolve(onHighlight(reviewContent.trim(), reviewContext))
-            .then(() => {
-              toast.success('Block pushed to document!')
-              setReviewModalOpen(false)
-              setReviewContent('')
-              setReviewContext('')
-            })
-            .catch((error) => {
-              console.error('Failed to push block:', error)
-              toast.error('Failed to push block')
-            })
-            .finally(() => {
-              setPushingBlock(false)
-            })
+        
+        // Get content from the editor
+        if (reviewEditorRef.current) {
+          const content = htmlToMarkdown(reviewEditorRef.current.innerHTML)
+          console.log('CMD+Enter - content:', content)
+          console.log('CMD+Enter - reviewContext:', reviewContext)
+          
+          if (content.trim() && onHighlight) {
+            setPushingBlock(true)
+            Promise.resolve(onHighlight(content.trim(), reviewContext))
+              .then(() => {
+                toast.success('Block pushed to document!')
+                setReviewModalOpen(false)
+                setReviewContent('')
+                setReviewContext('')
+              })
+              .catch((error) => {
+                console.error('Failed to push block:', error)
+                toast.error('Failed to push block')
+              })
+              .finally(() => {
+                setPushingBlock(false)
+              })
+          }
         }
       }
     }
 
     document.addEventListener('keydown', handleKeyDown)
     return () => document.removeEventListener('keydown', handleKeyDown)
-  }, [reviewModalOpen, onHighlight, reviewContext])
+  }, [reviewModalOpen, reviewContent, reviewContext, onHighlight])
 
   const handlePolish = async () => {
-    if (!reviewContext && !reviewContent) {
-      toast.error('No content to polish')
-      return
-    }
-
+    if (polishingContent || (!reviewContext && !reviewContent && !reviewEditorRef.current)) return
+    
     setPolishingContent(true)
     
     try {
-      // Get the current HTML content
+      // Get current content from the editor
       let currentContent = reviewContent
       if (reviewEditorRef.current) {
-        currentContent = reviewEditorRef.current.innerHTML
-        // Clean up for sending to AI
-        currentContent = currentContent.replace(/<br>/g, '\n')
-        currentContent = currentContent.replace(/<div>/g, '\n')
-        currentContent = currentContent.replace(/<\/div>/g, '')
-        currentContent = currentContent.replace(/<p><\/p>/g, '')
+        currentContent = htmlToMarkdown(reviewEditorRef.current.innerHTML)
       }
       
       const response = await fetch('/api/polish', {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           context: reviewContext,
           content: currentContent,
         }),
       })
-
+      
       if (!response.ok) {
         throw new Error('Failed to polish content')
       }
-
-      const { context: polishedContext, content: polishedContent } = await response.json()
       
-      // Update the fields with polished content
-      setReviewContext(polishedContext || reviewContext)
-      setReviewContent(polishedContent || currentContent)
+      const data = await response.json()
       
-      // Update the editor with the polished content
-      if (reviewEditorRef.current && polishedContent) {
-        // Convert markdown and newlines to HTML for display
-        let html = polishedContent
-        
-        // First, handle citations with URLs - convert [n](url#metadata) to styled spans
-        html = html.replace(/\[(\d+)\]\(([^)]+)\)/g, (match: string, num: string, url: string) => {
-          // Parse metadata from URL if present
-          let displayTitle = ''
-          try {
-            const urlObj = new URL(url, window.location.origin)
-            const hashParams = new URLSearchParams(urlObj.hash.slice(1))
-            if (hashParams.has('title')) {
-              displayTitle = hashParams.get('title') || ''
-            }
-          } catch (e) {
-            // Ignore URL parsing errors
-          }
+      if (data.content || data.context) {
+        // Update context if provided
+        if (data.context) {
+          setReviewContext(data.context)
+        }
+        // Update content if provided
+        if (data.content && reviewEditorRef.current) {
+          setReviewContent(data.content)
           
-          // Store the full URL in a data attribute for recovery
-          return `<span class="inline-flex items-center justify-center ml-0.5 px-1.5 py-0.5 text-[10px] font-medium bg-blue-100 dark:bg-blue-600 text-blue-700 dark:text-blue-100 rounded-full" data-citation-url="${url.replace(/"/g, '&quot;')}" title="${displayTitle || 'Source ' + num}">${num}</span>`
-        })
+          // Convert the polished markdown to HTML and update the editor
+          const html = markdownToHtml(data.content)
+          
+          // Update the editor
+          reviewEditorRef.current.innerHTML = html
+          
+          // Place cursor at end
+          reviewEditorRef.current.focus()
+          const range = document.createRange()
+          const sel = window.getSelection()
+          range.selectNodeContents(reviewEditorRef.current)
+          range.collapse(false)
+          sel?.removeAllRanges()
+          sel?.addRange(range)
+        }
         
-        // Then handle plain citations [n] (if any remain)
-        html = html.replace(/\[(\d+)\]/g, '<span class="inline-flex items-center justify-center ml-0.5 px-1.5 py-0.5 text-[10px] font-medium bg-blue-100 dark:bg-blue-600 text-blue-700 dark:text-blue-100 rounded-full">$1</span>')
-        
-        // Convert markdown to HTML for display
-        // Process bold first (double asterisks)
-        html = html.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>')
-        // Then process italics (single asterisks)
-        html = html.replace(/\*([^*]+)\*/g, '<em>$1</em>')
-        // Process inline code
-        html = html.replace(/`([^`]+)`/g, '<code class="px-1 py-0.5 bg-gray-200 dark:bg-gray-700 text-gray-800 dark:text-gray-200 text-sm">$1</code>')
-        
-        // Process headers
-        html = html.replace(/^### (.+)$/gm, '<h3 class="text-lg font-semibold mb-2">$1</h3>')
-        html = html.replace(/^## (.+)$/gm, '<h2 class="text-xl font-semibold mb-3">$1</h2>')
-        html = html.replace(/^# (.+)$/gm, '<h1 class="text-2xl font-bold mb-4">$1</h1>')
-        
-        // Process lists
-        html = html.replace(/^- (.+)$/gm, '<li class="ml-4">• $1</li>')
-        html = html.replace(/^\* (.+)$/gm, '<li class="ml-4">• $1</li>')
-        html = html.replace(/^\d+\. (.+)$/gm, '<li class="ml-4">$&</li>')
-        
-        // Process blockquotes
-        html = html.replace(/^> (.+)$/gm, '<blockquote class="border-l-4 border-gray-300 pl-4 italic my-2">$1</blockquote>')
-        
-        // Convert newlines to breaks
-        html = html.replace(/\n/g, '<br>')
-        
-        reviewEditorRef.current.innerHTML = html
-        
-        // Also update the reviewContent state with the markdown
-        setReviewContent(polishedContent)
+        toast.success('Content enhanced!')
+      } else {
+        throw new Error('No polished content received')
       }
-      
-      toast.success('Content polished with AI!')
     } catch (error) {
       console.error('Error polishing content:', error)
-      toast.error('Failed to polish content')
+      toast.error('Failed to enhance content')
     } finally {
       setPolishingContent(false)
     }
@@ -740,10 +859,10 @@ export function ChatPanel({ explorationId, onHighlight }: ChatPanelProps) {
                         h1: ({ children }) => <h1 className="mb-4 mt-6 first:mt-0">{children}</h1>,
                         h2: ({ children }) => <h2 className="mb-3 mt-5 first:mt-0">{children}</h2>,
                         h3: ({ children }) => <h3 className="mb-2 mt-4 first:mt-0">{children}</h3>,
-                        blockquote: ({ children }) => <blockquote className="my-4 border-l-4 border-gray-300 pl-4 italic">{children}</blockquote>,
+                        blockquote: ({ children }) => <blockquote className="my-4 border-l-4 border-gray-300">{children}</blockquote>,
                         hr: () => <hr className="my-6 border-gray-300" />,
                         a: ({ href, children }) => {
-                          // Extract text content from children (could be string or array)
+                          // Extract text content from children
                           let childText = ''
                           if (typeof children === 'string') {
                             childText = children
@@ -755,12 +874,7 @@ export function ChatPanel({ explorationId, onHighlight }: ChatPanelProps) {
                             childText = String(children || '')
                           }
                           
-                          // Debug logging
-                          if (href && href.includes('#')) {
-                            console.log('Citation link detected:', { href, children, childText })
-                          }
-                          
-                          // Check if this is a citation - just a number (the brackets are part of the markdown)
+                          // Check if this is a citation - just a number
                           const isCitation = /^\d+$/.test(childText.trim())
                           
                           if (isCitation && href) {
@@ -771,11 +885,7 @@ export function ChatPanel({ explorationId, onHighlight }: ChatPanelProps) {
                             try {
                               const url = new URL(href, window.location.origin)
                               const hashParams = new URLSearchParams(url.hash.slice(1))
-                              
-                              // Extract the clean URL without hash
                               metadata.url = url.origin + url.pathname + url.search
-                              
-                              // Extract metadata from hash parameters
                               if (hashParams.has('title')) {
                                 metadata.title = hashParams.get('title') || undefined
                               }
@@ -783,124 +893,23 @@ export function ChatPanel({ explorationId, onHighlight }: ChatPanelProps) {
                                 metadata.date = hashParams.get('date') || undefined
                               }
                             } catch (e) {
-                              // If URL parsing fails, just use the original href
                               metadata.url = href
                             }
                             
                             return (
-                              <span className="inline-flex items-center group relative">
-                                <a
-                                  href={metadata.url}
-                                  target="_blank"
-                                  rel="noopener noreferrer"
-                                  className="citation-pill inline-flex items-center justify-center ml-0.5 px-1.5 py-0.5 text-[10px] font-medium bg-blue-100 dark:bg-blue-600 text-blue-700 dark:text-blue-100 rounded-full hover:bg-blue-200 dark:hover:bg-blue-700 transition-colors duration-200 no-underline"
-                                  onClick={(e) => {
-                                    // Ensure we're navigating to the clean URL
-                                    e.preventDefault()
-                                    window.open(metadata.url, '_blank', 'noopener,noreferrer')
-                                  }}
-                                >
-                                  {citationNumber}
-                                </a>
-                                
-                                {/* Enhanced hover preview */}
-                                <span className="absolute bottom-full left-0 mb-2 opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all duration-200 z-50 pointer-events-none">
-                                  <span className="bg-white dark:bg-gray-900 shadow-xl border border-gray-200 dark:border-gray-700 p-4 w-80 max-w-sm block">
-                                    {/* Title */}
-                                    {metadata.title && (
-                                      <span 
-                                        className="text-sm font-medium text-gray-900 dark:text-gray-100 mb-2 block truncate"
-                                      >
-                                        {metadata.title}
-                                      </span>
-                                    )}
-                                    
-                                    {/* Domain and date */}
-                                    <span className="flex items-center gap-2 text-xs text-gray-500 dark:text-gray-400 mb-2">
-                                      <span className="text-blue-600 dark:text-blue-400">
-                                        {(() => {
-                                          try {
-                                            return new URL(metadata.url).hostname.replace('www.', '')
-                                          } catch {
-                                            return 'Source'
-                                          }
-                                        })()}
-                                      </span>
-                                      {metadata.date && (
-                                        <>
-                                          <span>•</span>
-                                          <span>
-                                            {(() => {
-                                              try {
-                                                const date = new Date(metadata.date)
-                                                const now = new Date()
-                                                const diffTime = Math.abs(now.getTime() - date.getTime())
-                                                const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24))
-                                                
-                                                if (diffDays === 0) return 'Today'
-                                                if (diffDays === 1) return 'Yesterday'
-                                                if (diffDays < 7) return `${diffDays} days ago`
-                                                if (diffDays < 30) return `${Math.floor(diffDays / 7)} weeks ago`
-                                                if (diffDays < 365) return `${Math.floor(diffDays / 30)} months ago`
-                                                
-                                                return date.toLocaleDateString('en-US', { 
-                                                  month: 'short', 
-                                                  day: 'numeric',
-                                                  year: date.getFullYear() !== now.getFullYear() ? 'numeric' : undefined
-                                                })
-                                              } catch {
-                                                return metadata.date
-                                              }
-                                            })()}
-                                          </span>
-                                        </>
-                                      )}
-                                    </span>
-                                    
-                                    {/* Preview text or fallback */}
-                                    <span className="text-xs text-gray-600 dark:text-gray-300 leading-relaxed block">
-                                      {metadata.title ? (
-                                        <span className="italic">Click to read the full article</span>
-                                      ) : (
-                                        <span>Source {citationNumber}</span>
-                                      )}
-                                    </span>
-                                  </span>
-                                </span>
+                              <span className="inline-flex items-center justify-center ml-0.5 px-1.5 py-0.5 text-[10px] font-medium bg-blue-100 dark:bg-blue-600 text-blue-700 dark:text-blue-100 rounded-full no-underline">
+                                {citationNumber}
                               </span>
                             )
                           }
                           
                           // Regular link
                           return (
-                            <a 
-                              href={href} 
-                              target="_blank" 
-                              rel="noopener noreferrer"
-                              className="text-blue-600 hover:text-blue-800 underline"
-                            >
+                            <a href={href} target="_blank" rel="noopener noreferrer" className="text-blue-600 hover:text-blue-800 underline">
                               {children}
                             </a>
                           )
                         },
-                        table: ({ children }) => (
-                          <table className="min-w-full border-collapse border border-border bg-card shadow-sm my-4 overflow-x-auto block">
-                            {children}
-                          </table>
-                        ),
-                        thead: ({ children }) => <thead className="bg-muted">{children}</thead>,
-                        tbody: ({ children }) => <tbody className="divide-y divide-border">{children}</tbody>,
-                        tr: ({ children }) => <tr className="hover:bg-muted">{children}</tr>,
-                        th: ({ children }) => (
-                          <th className="border border-border px-4 py-3 text-left font-semibold text-foreground">
-                            {children}
-                          </th>
-                        ),
-                        td: ({ children }) => (
-                          <td className="border border-border px-4 py-3 text-foreground/80">
-                            {children}
-                          </td>
-                        )
                       }}
                     >
                       {message.content}
@@ -1017,51 +1026,6 @@ export function ChatPanel({ explorationId, onHighlight }: ChatPanelProps) {
                 ref={reviewEditorRef}
                 contentEditable={!pushingBlock && !polishingContent}
                 suppressContentEditableWarning
-                onBlur={() => {
-                  // Extract content while preserving markdown formatting
-                  if (reviewEditorRef.current) {
-                    let content = reviewEditorRef.current.innerHTML
-                    
-                    // Convert HTML back to markdown
-                    // Convert headers back
-                    content = content.replace(/<h1[^>]*>(.*?)<\/h1>/g, '# $1')
-                    content = content.replace(/<h2[^>]*>(.*?)<\/h2>/g, '## $1')
-                    content = content.replace(/<h3[^>]*>(.*?)<\/h3>/g, '### $1')
-                    // Convert blockquotes back
-                    content = content.replace(/<blockquote[^>]*>(.*?)<\/blockquote>/g, '> $1')
-                    // Convert list items back
-                    content = content.replace(/<li[^>]*>• (.*?)<\/li>/g, '- $1')
-                    content = content.replace(/<li[^>]*>(\d+\. .*?)<\/li>/g, '$1')
-                    // Convert citation spans back - check for data-citation-url first
-                    content = content.replace(/<span[^>]*data-citation-url="([^"]*)"[^>]*>(\d+)<\/span>/g, (match: string, url: string, num: string) => {
-                      // Decode the URL
-                      const decodedUrl = url.replace(/&quot;/g, '"')
-                      return `[${num}](${decodedUrl})`
-                    })
-                    // Convert plain citation spans (without URLs) back to [n]
-                    content = content.replace(/<span[^>]*class="[^"]*"[^>]*>(\d+)<\/span>/g, '[$1]')
-                    // Convert strong/bold tags back to **
-                    content = content.replace(/<strong>(.*?)<\/strong>/g, '**$1**')
-                    // Convert em/italic tags back to *
-                    content = content.replace(/<em>(.*?)<\/em>/g, '*$1*')
-                    // Convert underline tags
-                    content = content.replace(/<u>(.*?)<\/u>/g, '$1')
-                    // Convert code tags back to backticks
-                    content = content.replace(/<code[^>]*>(.*?)<\/code>/g, '`$1`')
-                    // Convert line breaks
-                    content = content.replace(/<br>/g, '\n')
-                    content = content.replace(/<div>/g, '\n')
-                    content = content.replace(/<\/div>/g, '')
-                    // Clean up any remaining HTML tags
-                    content = content.replace(/<[^>]*>/g, '')
-                    // Decode HTML entities
-                    const textarea = document.createElement('textarea')
-                    textarea.innerHTML = content
-                    content = textarea.value
-                    
-                    setReviewContent(content.trim())
-                  }
-                }}
                 onKeyDown={(e) => {
                   // Cmd/Ctrl + B for bold
                   if (e.key === 'b' && (e.metaKey || e.ctrlKey)) {
@@ -1073,67 +1037,32 @@ export function ChatPanel({ explorationId, onHighlight }: ChatPanelProps) {
                     e.preventDefault()
                     document.execCommand('italic', false)
                   }
-                  // Cmd/Ctrl + U for underline
-                  if (e.key === 'u' && (e.metaKey || e.ctrlKey)) {
+                  // Cmd/Ctrl + Enter to push
+                  if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {
                     e.preventDefault()
-                    document.execCommand('underline', false)
+                    const content = htmlToMarkdown(e.currentTarget.innerHTML)
+                    if (content.trim() && onHighlight) {
+                      setPushingBlock(true)
+                      Promise.resolve(onHighlight(content.trim(), reviewContext))
+                        .then(() => {
+                          toast.success('Block pushed to document!')
+                          setReviewModalOpen(false)
+                          setReviewContent('')
+                          setReviewContext('')
+                        })
+                        .catch((error) => {
+                          console.error('Failed to push block:', error)
+                          toast.error('Failed to push block')
+                        })
+                        .finally(() => {
+                          setPushingBlock(false)
+                        })
+                    }
                   }
                 }}
-                className="w-full h-full min-h-[300px] p-4 bg-card text-foreground border border-border focus:outline-none focus:border-gray-400 prose prose-sm max-w-none prose-headings:text-gray-900 prose-p:text-gray-900 prose-p:mb-3 prose-p:leading-relaxed prose-strong:text-gray-900 prose-em:text-gray-700 prose-code:text-gray-800 prose-code:bg-gray-200 prose-code:px-1 prose-pre:bg-gray-800 prose-pre:text-gray-100 prose-ul:mb-3 prose-ol:mb-3 prose-li:mb-1 prose-blockquote:border-l-4 prose-blockquote:border-gray-300 prose-blockquote:pl-4 prose-blockquote:italic prose-hr:my-4"
+                className="w-full h-full min-h-[300px] p-4 bg-card text-foreground border border-border focus:outline-none focus:border-gray-400 prose prose-sm max-w-none prose-headings:text-gray-900 dark:prose-headings:text-gray-100 prose-p:text-gray-900 dark:prose-p:text-gray-100 prose-p:mb-3 prose-p:leading-relaxed prose-strong:text-gray-900 dark:prose-strong:text-gray-100 prose-em:text-gray-700 dark:prose-em:text-gray-300 prose-code:text-gray-800 dark:prose-code:text-gray-200 prose-code:bg-gray-200 dark:prose-code:bg-gray-700 prose-code:px-1 prose-pre:bg-gray-800 prose-pre:text-gray-100 prose-ul:mb-3 prose-ol:mb-3 prose-li:mb-1 prose-blockquote:border-l-4 prose-blockquote:border-gray-300 dark:prose-blockquote:border-gray-600 prose-blockquote:pl-4 prose-blockquote:italic prose-hr:my-4"
                 style={{
-                  boxShadow: 'none'
-                }}
-                dangerouslySetInnerHTML={{
-                  __html: (() => {
-                    let html = reviewContent
-                    
-                    // First, handle citations with URLs - convert [n](url#metadata) to styled spans
-                    html = html.replace(/\[(\d+)\]\(([^)]+)\)/g, (match: string, num: string, url: string) => {
-                      // Parse metadata from URL if present
-                      let displayTitle = ''
-                      try {
-                        const urlObj = new URL(url, window.location.origin)
-                        const hashParams = new URLSearchParams(urlObj.hash.slice(1))
-                        if (hashParams.has('title')) {
-                          displayTitle = hashParams.get('title') || ''
-                        }
-                      } catch (e) {
-                        // Ignore URL parsing errors
-                      }
-                      
-                      // Store the full URL in a data attribute for recovery
-                      return `<span class="inline-flex items-center justify-center ml-0.5 px-1.5 py-0.5 text-[10px] font-medium bg-blue-100 dark:bg-blue-600 text-blue-700 dark:text-blue-100 rounded-full" data-citation-url="${url.replace(/"/g, '&quot;')}" title="${displayTitle || 'Source ' + num}">${num}</span>`
-                    })
-                    
-                    // Then handle plain citations [n] (if any remain)
-                    html = html.replace(/\[(\d+)\]/g, '<span class="inline-flex items-center justify-center ml-0.5 px-1.5 py-0.5 text-[10px] font-medium bg-blue-100 dark:bg-blue-600 text-blue-700 dark:text-blue-100 rounded-full">$1</span>')
-                    
-                    // Convert markdown to HTML for display
-                    // Process bold first (double asterisks)
-                    html = html.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>')
-                    // Then process italics (single asterisks)
-                    html = html.replace(/\*([^*]+)\*/g, '<em>$1</em>')
-                    // Process inline code
-                    html = html.replace(/`([^`]+)`/g, '<code class="px-1 py-0.5 bg-gray-200 dark:bg-gray-700 text-gray-800 dark:text-gray-200 text-sm">$1</code>')
-                    
-                    // Process headers
-                    html = html.replace(/^### (.+)$/gm, '<h3 class="text-lg font-semibold mb-2">$1</h3>')
-                    html = html.replace(/^## (.+)$/gm, '<h2 class="text-xl font-semibold mb-3">$1</h2>')
-                    html = html.replace(/^# (.+)$/gm, '<h1 class="text-2xl font-bold mb-4">$1</h1>')
-                    
-                    // Process lists
-                    html = html.replace(/^- (.+)$/gm, '<li class="ml-4">• $1</li>')
-                    html = html.replace(/^\* (.+)$/gm, '<li class="ml-4">• $1</li>')
-                    html = html.replace(/^\d+\. (.+)$/gm, '<li class="ml-4">$&</li>')
-                    
-                    // Process blockquotes
-                    html = html.replace(/^> (.+)$/gm, '<blockquote class="border-l-4 border-gray-300 pl-4 italic my-2">$1</blockquote>')
-                    
-                    // Convert newlines to breaks
-                    html = html.replace(/\n/g, '<br>')
-                    
-                    return html
-                  })()
+                  minHeight: '300px'
                 }}
               />
               
@@ -1177,27 +1106,33 @@ export function ChatPanel({ explorationId, onHighlight }: ChatPanelProps) {
               {/* Push Block button with hover state */}
               <Button
                 onClick={() => {
-                  if (reviewContent.trim() && onHighlight) {
-                    setPushingBlock(true)
-                    // Use the markdown content directly
-                    Promise.resolve(onHighlight(reviewContent.trim(), reviewContext))
-                      .then(() => {
-                        toast.success('Block pushed to document!')
-                        setReviewModalOpen(false)
-                        setReviewContent('')
-                        setReviewContext('')
-                      })
-                      .catch((error) => {
-                        console.error('Failed to push block:', error)
-                        toast.error('Failed to push block')
-                      })
-                      .finally(() => {
-                        setPushingBlock(false)
-                      })
+                  if (reviewEditorRef.current) {
+                    const content = htmlToMarkdown(reviewEditorRef.current.innerHTML)
+                    console.log('Push block - raw HTML:', reviewEditorRef.current.innerHTML)
+                    console.log('Push block - converted markdown:', content)
+                    console.log('Push block - reviewContext:', reviewContext)
+                    
+                    if (content.trim() && onHighlight) {
+                      setPushingBlock(true)
+                      Promise.resolve(onHighlight(content.trim(), reviewContext))
+                        .then(() => {
+                          toast.success('Block pushed to document!')
+                          setReviewModalOpen(false)
+                          setReviewContent('')
+                          setReviewContext('')
+                        })
+                        .catch((error) => {
+                          console.error('Failed to push block:', error)
+                          toast.error('Failed to push block')
+                        })
+                        .finally(() => {
+                          setPushingBlock(false)
+                        })
+                    }
                   }
                 }}
                 className="flex-1 gap-2 group"
-                disabled={pushingBlock || !reviewContent.trim()}
+                disabled={pushingBlock}
               >
                 {pushingBlock ? (
                   <>
