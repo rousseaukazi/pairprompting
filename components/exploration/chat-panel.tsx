@@ -63,11 +63,85 @@ export function ChatPanel({ explorationId, onHighlight }: ChatPanelProps) {
         }
         
         return (
-          <span
-            key={index}
-            className="inline-flex items-center justify-center ml-0.5 px-1.5 py-0.5 text-[10px] font-medium bg-blue-100 dark:bg-blue-600 text-blue-700 dark:text-blue-100 rounded-full no-underline"
-          >
-            {num}
+          <span key={index} className="inline-flex items-center group relative">
+            <a
+              href={metadata.url}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="citation-pill inline-flex items-center justify-center ml-0.5 px-1.5 py-0.5 text-[10px] font-medium bg-blue-100 dark:bg-blue-600 text-blue-700 dark:text-blue-100 rounded-full hover:bg-blue-200 dark:hover:bg-blue-700 transition-colors duration-200 no-underline"
+              onClick={(e) => {
+                // Ensure we're navigating to the clean URL
+                e.preventDefault()
+                window.open(metadata.url, '_blank', 'noopener,noreferrer')
+              }}
+            >
+              {num}
+            </a>
+            
+            {/* Enhanced hover preview */}
+            <span className="absolute bottom-full left-0 mb-2 opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all duration-200 z-50 pointer-events-none">
+              <span className="bg-white dark:bg-gray-900 shadow-xl border border-gray-200 dark:border-gray-700 p-4 w-80 max-w-sm block">
+                {/* Title */}
+                {metadata.title && (
+                  <span 
+                    className="text-sm font-medium text-gray-900 dark:text-gray-100 mb-2 block truncate"
+                  >
+                    {metadata.title}
+                  </span>
+                )}
+                
+                {/* Domain and date */}
+                <span className="flex items-center gap-2 text-xs text-gray-500 dark:text-gray-400 mb-2">
+                  <span className="text-blue-600 dark:text-blue-400">
+                    {(() => {
+                      try {
+                        return new URL(metadata.url).hostname.replace('www.', '')
+                      } catch {
+                        return 'Source'
+                      }
+                    })()}
+                  </span>
+                  {metadata.date && (
+                    <>
+                      <span>•</span>
+                      <span>
+                        {(() => {
+                          try {
+                            const date = new Date(metadata.date)
+                            const now = new Date()
+                            const diffTime = Math.abs(now.getTime() - date.getTime())
+                            const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24))
+                            
+                            if (diffDays === 0) return 'Today'
+                            if (diffDays === 1) return 'Yesterday'
+                            if (diffDays < 7) return `${diffDays} days ago`
+                            if (diffDays < 30) return `${Math.floor(diffDays / 7)} weeks ago`
+                            if (diffDays < 365) return `${Math.floor(diffDays / 30)} months ago`
+                            
+                            return date.toLocaleDateString('en-US', { 
+                              month: 'short', 
+                              day: 'numeric',
+                              year: date.getFullYear() !== now.getFullYear() ? 'numeric' : undefined
+                            })
+                          } catch {
+                            return metadata.date
+                          }
+                        })()}
+                      </span>
+                    </>
+                  )}
+                </span>
+                
+                {/* Preview text or fallback */}
+                <span className="text-xs text-gray-600 dark:text-gray-300 leading-relaxed block">
+                  {metadata.title ? (
+                    <span className="italic">Click to read the full article</span>
+                  ) : (
+                    <span>Source {num}</span>
+                  )}
+                </span>
+              </span>
+            </span>
           </span>
         )
       }
