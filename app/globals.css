@@ -204,4 +204,21 @@ body.highlight-cursor.drawing {
 
 .dark .prose .citation-pill:hover {
   background-color: rgb(29 78 216) !important;
+}
+
+/* Review editor - force plain text appearance */
+[contenteditable] * {
+  font-weight: normal !important;
+  font-style: normal !important;
+  text-decoration: none !important;
+}
+
+[contenteditable] b,
+[contenteditable] strong,
+[contenteditable] i,
+[contenteditable] em,
+[contenteditable] u {
+  font-weight: normal !important;
+  font-style: normal !important;
+  text-decoration: none !important;
 } 

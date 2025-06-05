@@ -29,11 +29,11 @@ For Questions/Context:
 For Content/Answers:
 - Consolidate related points and remove redundancy
 - Create a coherent, flowing response rather than disconnected bullets
-- Use clear structure with headings if needed
-- Make it scannable with strategic use of:
-  - **Bold** for key concepts
-  - Bullet points for lists
+- Use clear structure with paragraphs
+- Make it scannable with:
   - Short paragraphs for readability
+  - Clear topic sentences
+  - Logical flow between ideas
 - Preserve technical accuracy and important details
 - Aim for 30-50% reduction in length while keeping all key information
 - IMPORTANT: Preserve any citations in the format [1], [2], etc. Do not remove or modify citation numbers
@@ -41,9 +41,10 @@ For Content/Answers:
 General Rules:
 - Fix any grammar, spelling, or formatting issues
 - Maintain a professional yet approachable tone
-- Preserve any existing HTML formatting like <strong>, <em>, <u> tags
 - Keep citation numbers [1], [2], [3] etc. exactly as they appear
-- Create a response that feels like it was written as one cohesive piece, not assembled from parts`
+- Create a response that feels like it was written as one cohesive piece, not assembled from parts
+- DO NOT use any markdown formatting (no asterisks, no bold, no italic, no code blocks)
+- Write everything as plain text`
 
     const userPrompt = `Please consolidate and rewrite the following:
 

@@ -5,9 +5,6 @@ import { Button } from '@/components/ui/button'
 import { supabase } from '@/lib/supabase'
 import { useAuth } from '@clerk/nextjs'
 import { UserAvatar } from '@/components/user-avatar'
-import ReactMarkdown from 'react-markdown'
-import remarkGfm from 'remark-gfm'
-import rehypeRaw from 'rehype-raw'
 import type { Block, Comment } from '@/lib/supabase'
 
 type BlockWithComments = Block & {
@@ -34,6 +31,141 @@ export function DocumentView({ explorationId, title }: DocumentViewProps) {
   const [sortOrder, setSortOrder] = useState<'chrono' | 'reverse_chrono'>('reverse_chrono')
   const blocksEndRef = useRef<HTMLDivElement>(null)
   const { userId } = useAuth()
+
+  // Helper function to render plain text with citations
+  const renderTextWithCitations = (content: string) => {
+    // Split the content by citation patterns
+    const parts = content.split(/(\[\d+\](?:\([^)]+\))?)/g)
+    
+    return parts.map((part, index) => {
+      // Check if this is a citation with URL
+      const citationWithUrlMatch = part.match(/^\[(\d+)\]\(([^)]+)\)$/)
+      if (citationWithUrlMatch) {
+        const [, num, url] = citationWithUrlMatch
+        
+        // Parse metadata from URL hash parameters
+        let metadata = { url, title: undefined as string | undefined, date: undefined as string | undefined }
+        try {
+          const urlObj = new URL(url, window.location.origin)
+          const hashParams = new URLSearchParams(urlObj.hash.slice(1))
+          metadata.url = urlObj.origin + urlObj.pathname + urlObj.search
+          if (hashParams.has('title')) {
+            metadata.title = hashParams.get('title') || undefined
+          }
+          if (hashParams.has('date')) {
+            metadata.date = hashParams.get('date') || undefined
+          }
+        } catch (e) {
+          metadata.url = url
+        }
+        
+        return (
+          <span key={index} className="inline-flex items-center group relative">
+            <a
+              href={metadata.url}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="citation-pill inline-flex items-center justify-center ml-0.5 px-1.5 py-0.5 text-[10px] font-medium bg-blue-100 dark:bg-blue-600 text-blue-700 dark:text-blue-100 rounded-full hover:bg-blue-200 dark:hover:bg-blue-700 transition-colors duration-200 no-underline"
+              onClick={(e) => {
+                // Ensure we're navigating to the clean URL
+                e.preventDefault()
+                window.open(metadata.url, '_blank', 'noopener,noreferrer')
+              }}
+            >
+              {num}
+            </a>
+            
+            {/* Enhanced hover preview */}
+            <span className="absolute bottom-full left-0 mb-2 opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all duration-200 z-50 pointer-events-none">
+              <span className="bg-white dark:bg-gray-900 shadow-xl border border-gray-200 dark:border-gray-700 p-4 w-80 max-w-sm block">
+                {/* Title */}
+                {metadata.title && (
+                  <span 
+                    className="text-sm font-medium text-gray-900 dark:text-gray-100 mb-2 block truncate"
+                  >
+                    {metadata.title}
+                  </span>
+                )}
+                
+                {/* Domain and date */}
+                <span className="flex items-center gap-2 text-xs text-gray-500 dark:text-gray-400 mb-2">
+                  <span className="text-blue-600 dark:text-blue-400">
+                    {(() => {
+                      try {
+                        return new URL(metadata.url).hostname.replace('www.', '')
+                      } catch {
+                        return 'Source'
+                      }
+                    })()}
+                  </span>
+                  {metadata.date && (
+                    <>
+                      <span>•</span>
+                      <span>
+                        {(() => {
+                          try {
+                            const date = new Date(metadata.date)
+                            const now = new Date()
+                            const diffTime = Math.abs(now.getTime() - date.getTime())
+                            const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24))
+                            
+                            if (diffDays === 0) return 'Today'
+                            if (diffDays === 1) return 'Yesterday'
+                            if (diffDays < 7) return `${diffDays} days ago`
+                            if (diffDays < 30) return `${Math.floor(diffDays / 7)} weeks ago`
+                            if (diffDays < 365) return `${Math.floor(diffDays / 30)} months ago`
+                            
+                            return date.toLocaleDateString('en-US', { 
+                              month: 'short', 
+                              day: 'numeric',
+                              year: date.getFullYear() !== now.getFullYear() ? 'numeric' : undefined
+                            })
+                          } catch {
+                            return metadata.date
+                          }
+                        })()}
+                      </span>
+                    </>
+                  )}
+                </span>
+                
+                {/* Preview text or fallback */}
+                <span className="text-xs text-gray-600 dark:text-gray-300 leading-relaxed block">
+                  {metadata.title ? (
+                    <span className="italic">Click to read the full article</span>
+                  ) : (
+                    <span>Source {num}</span>
+                  )}
+                </span>
+              </span>
+            </span>
+          </span>
+        )
+      }
+      
+      // Check if this is a plain citation
+      const plainCitationMatch = part.match(/^\[(\d+)\]$/)
+      if (plainCitationMatch) {
+        const [, num] = plainCitationMatch
+        return (
+          <span
+            key={index}
+            className="inline-flex items-center justify-center ml-0.5 px-1.5 py-0.5 text-[10px] font-medium bg-blue-100 dark:bg-blue-600 text-blue-700 dark:text-blue-100 rounded-full"
+          >
+            {num}
+          </span>
+        )
+      }
+      
+      // Regular text - preserve line breaks
+      return part.split('\n').map((line, lineIndex) => (
+        <span key={`${index}-${lineIndex}`}>
+          {lineIndex > 0 && <br />}
+          {line}
+        </span>
+      ))
+    })
+  }
 
   // Fetch current user's emoji and sort preference
   useEffect(() => {
@@ -419,254 +551,8 @@ export function DocumentView({ explorationId, title }: DocumentViewProps) {
                   </div>
                 )}
                 
-                <div className="prose prose-sm max-w-none prose-headings:text-gray-900 dark:prose-headings:text-gray-100 prose-p:text-gray-900 dark:prose-p:text-gray-100 prose-p:mb-3 prose-p:leading-relaxed prose-strong:text-gray-900 dark:prose-strong:text-gray-100 prose-em:text-gray-700 dark:prose-em:text-gray-300 prose-em:italic prose-code:text-gray-800 dark:prose-code:text-gray-200 prose-code:bg-gray-200 dark:prose-code:bg-gray-700 prose-code:px-1 prose-pre:bg-gray-800 prose-pre:text-gray-100 prose-ul:mb-3 prose-ol:mb-3 prose-li:mb-1 prose-blockquote:border-l-4 prose-blockquote:border-gray-300 dark:prose-blockquote:border-gray-600 prose-blockquote:pl-4 prose-blockquote:italic prose-hr:my-4 dark:prose-hr:border-gray-600">
-                  {(() => {
-                    console.log('Block id:', block.id)
-                    console.log('Block content:', block.content)
-                    console.log('Block content includes asterisks:', block.content.includes('*'))
-                    return null
-                  })()}
-                  <ReactMarkdown 
-                    remarkPlugins={[remarkGfm]}
-                    rehypePlugins={[rehypeRaw]}
-                    components={{
-                      p: ({ children }) => {
-                        // Process paragraph children to handle [1] style citations
-                        const processChildren = (children: any): any => {
-                          if (typeof children === 'string') {
-                            const parts = children.split(/(\[\d+\])/g)
-                            return parts.map((part, index) => {
-                              const citationMatch = part.match(/^\[(\d+)\]$/)
-                              if (citationMatch) {
-                                return (
-                                  <span
-                                    key={index}
-                                    className="inline-flex items-center justify-center ml-0.5 px-1.5 py-0.5 text-[10px] font-medium bg-blue-100 dark:bg-blue-600 text-blue-700 dark:text-blue-100 rounded-full"
-                                  >
-                                    {citationMatch[1]}
-                                  </span>
-                                )
-                              }
-                              return part
-                            })
-                          }
-                          if (Array.isArray(children)) {
-                            return children.map((child, idx) => {
-                              if (typeof child === 'string') {
-                                return processChildren(child)
-                              }
-                              return child
-                            })
-                          }
-                          return children
-                        }
-                        
-                        return <p className="mb-3 last:mb-0">{processChildren(children)}</p>
-                      },
-                      br: () => <br className="mb-2" />,
-                      ul: ({ children }) => <ul className="mb-3 space-y-1">{children}</ul>,
-                      ol: ({ children }) => <ol className="mb-3 space-y-1">{children}</ol>,
-                      li: ({ children }) => {
-                        // Process list item children to handle [1] style citations
-                        const processChildren = (children: any): any => {
-                          if (typeof children === 'string') {
-                            const parts = children.split(/(\[\d+\])/g)
-                            return parts.map((part, index) => {
-                              const citationMatch = part.match(/^\[(\d+)\]$/)
-                              if (citationMatch) {
-                                return (
-                                  <span
-                                    key={index}
-                                    className="inline-flex items-center justify-center ml-0.5 px-1.5 py-0.5 text-[10px] font-medium bg-blue-100 dark:bg-blue-600 text-blue-700 dark:text-blue-100 rounded-full"
-                                  >
-                                    {citationMatch[1]}
-                                  </span>
-                                )
-                              }
-                              return part
-                            })
-                          }
-                          if (Array.isArray(children)) {
-                            return children.map((child, idx) => {
-                              if (typeof child === 'string') {
-                                return processChildren(child)
-                              }
-                              return child
-                            })
-                          }
-                          return children
-                        }
-                        
-                        return <li className="leading-relaxed">{processChildren(children)}</li>
-                      },
-                      h1: ({ children }) => <h1 className="mb-4 mt-6 first:mt-0">{children}</h1>,
-                      h2: ({ children }) => <h2 className="mb-3 mt-5 first:mt-0">{children}</h2>,
-                      h3: ({ children }) => <h3 className="mb-2 mt-4 first:mt-0">{children}</h3>,
-                      blockquote: ({ children }) => <blockquote className="my-4 border-l-4 border-gray-300 pl-4 italic">{children}</blockquote>,
-                      hr: () => <hr className="my-6 border-gray-300" />,
-                      u: ({ children }) => <u className="underline">{children}</u>,
-                      em: ({ children }) => <em className="italic">{children}</em>,
-                      strong: ({ children }) => <strong className="font-bold">{children}</strong>,
-                      a: ({ href, children }) => {
-                        // Extract text content from children (could be string or array)
-                        let childText = ''
-                        if (typeof children === 'string') {
-                          childText = children
-                        } else if (Array.isArray(children)) {
-                          childText = children.join('')
-                        } else if (children && typeof children === 'object' && 'props' in children && typeof (children as any).props?.children !== 'undefined') {
-                          childText = String((children as any).props.children)
-                        } else {
-                          childText = String(children || '')
-                        }
-                        
-                        // Check if this is a citation - just a number (the brackets are part of the markdown)
-                        const isCitation = /^\d+$/.test(childText.trim())
-                        
-                        if (isCitation && href) {
-                          const citationNumber = childText.trim()
-                          
-                          // Parse metadata from URL hash parameters
-                          let metadata = { url: href, title: undefined as string | undefined, date: undefined as string | undefined }
-                          try {
-                            const url = new URL(href, window.location.origin)
-                            const hashParams = new URLSearchParams(url.hash.slice(1))
-                            
-                            // Extract the clean URL without hash
-                            metadata.url = url.origin + url.pathname + url.search
-                            
-                            // Extract metadata from hash parameters
-                            if (hashParams.has('title')) {
-                              metadata.title = hashParams.get('title') || undefined
-                            }
-                            if (hashParams.has('date')) {
-                              metadata.date = hashParams.get('date') || undefined
-                            }
-                          } catch (e) {
-                            // If URL parsing fails, just use the original href
-                            metadata.url = href
-                          }
-                          
-                          return (
-                            <span className="inline-flex items-center group relative">
-                              <a
-                                href={metadata.url}
-                                target="_blank"
-                                rel="noopener noreferrer"
-                                className="citation-pill inline-flex items-center justify-center ml-0.5 px-1.5 py-0.5 text-[10px] font-medium bg-blue-100 dark:bg-blue-600 text-blue-700 dark:text-blue-100 rounded-full hover:bg-blue-200 dark:hover:bg-blue-700 transition-colors duration-200 no-underline"
-                                onClick={(e) => {
-                                  // Ensure we're navigating to the clean URL
-                                  e.preventDefault()
-                                  window.open(metadata.url, '_blank', 'noopener,noreferrer')
-                                }}
-                              >
-                                {citationNumber}
-                              </a>
-                              
-                              {/* Enhanced hover preview */}
-                              <span className="absolute bottom-full left-0 mb-2 opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all duration-200 z-50 pointer-events-none">
-                                <span className="bg-white dark:bg-gray-900 shadow-xl border border-gray-200 dark:border-gray-700 p-4 w-80 max-w-sm block">
-                                  {/* Title */}
-                                  {metadata.title && (
-                                    <span 
-                                      className="text-sm font-medium text-gray-900 dark:text-gray-100 mb-2 block truncate"
-                                    >
-                                      {metadata.title}
-                                    </span>
-                                  )}
-                                  
-                                  {/* Domain and date */}
-                                  <span className="flex items-center gap-2 text-xs text-gray-500 dark:text-gray-400 mb-2">
-                                    <span className="text-blue-600 dark:text-blue-400">
-                                      {(() => {
-                                        try {
-                                          return new URL(metadata.url).hostname.replace('www.', '')
-                                        } catch {
-                                          return 'Source'
-                                        }
-                                      })()}
-                                    </span>
-                                    {metadata.date && (
-                                      <>
-                                        <span>•</span>
-                                        <span>
-                                          {(() => {
-                                            try {
-                                              const date = new Date(metadata.date)
-                                              const now = new Date()
-                                              const diffTime = Math.abs(now.getTime() - date.getTime())
-                                              const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24))
-                                              
-                                              if (diffDays === 0) return 'Today'
-                                              if (diffDays === 1) return 'Yesterday'
-                                              if (diffDays < 7) return `${diffDays} days ago`
-                                              if (diffDays < 30) return `${Math.floor(diffDays / 7)} weeks ago`
-                                              if (diffDays < 365) return `${Math.floor(diffDays / 30)} months ago`
-                                              
-                                              return date.toLocaleDateString('en-US', { 
-                                                month: 'short', 
-                                                day: 'numeric',
-                                                year: date.getFullYear() !== now.getFullYear() ? 'numeric' : undefined
-                                              })
-                                            } catch {
-                                              return metadata.date
-                                            }
-                                          })()}
-                                        </span>
-                                      </>
-                                    )}
-                                  </span>
-                                  
-                                  {/* Preview text or fallback */}
-                                  <span className="text-xs text-gray-600 dark:text-gray-300 leading-relaxed block">
-                                    {metadata.title ? (
-                                      <span className="italic">Click to read the full article</span>
-                                    ) : (
-                                      <span>Source {citationNumber}</span>
-                                    )}
-                                  </span>
-                                </span>
-                              </span>
-                            </span>
-                          )
-                        }
-                        
-                        // Regular link
-                        return (
-                          <a 
-                            href={href} 
-                            target="_blank" 
-                            rel="noopener noreferrer"
-                            className="text-blue-600 hover:text-blue-800 underline"
-                          >
-                            {children}
-                          </a>
-                        )
-                      },
-                      table: ({ children }) => (
-                        <div className="overflow-x-auto my-4">
-                          <table className="min-w-full border-collapse border border-border bg-card rounded-lg shadow-sm">
-                            {children}
-                          </table>
-                        </div>
-                      ),
-                      thead: ({ children }) => <thead className="bg-muted">{children}</thead>,
-                      tbody: ({ children }) => <tbody className="divide-y divide-border">{children}</tbody>,
-                      tr: ({ children }) => <tr className="hover:bg-muted">{children}</tr>,
-                      th: ({ children }) => (
-                        <th className="border border-border px-4 py-3 text-left font-semibold text-foreground">
-                          {children}
-                        </th>
-                      ),
-                      td: ({ children }) => (
-                        <td className="border border-border px-4 py-3 text-foreground/80">
-                          {children}
-                        </td>
-                      )
-                    }}
-                  >
-                    {block.content}
-                  </ReactMarkdown>
+                <div className="text-sm leading-relaxed whitespace-pre-wrap">
+                  {renderTextWithCitations(block.content)}
                 </div>
                 
                 {/* Comment toggle link */}

@@ -16,28 +16,39 @@ const DEFAULT_SYSTEM_PROMPT = `You are PairPrompting AI, a focused learning comp
 
 Your role is to help users explore topics through concise, educational responses that deliver key insights quickly. You have access to real-time web information when needed. Follow these principles:
 
-**Response Style:**
+Response Style:
 - Keep responses pithy and focused - prioritize clarity over length
 - Lead with the most important insight or key nugget
-- Use bullet points, lists, and clear structure for easy scanning
+- Use clear paragraphs and structure for easy scanning
 - Avoid unnecessary elaboration - users can ask follow-ups for depth
 - When relevant, include up-to-date information from web searches
 - ALWAYS cite sources using inline references like [1], [2], [3] etc. immediately after the relevant statement
 
-**Educational Focus:**
+CRITICAL FORMATTING RULES - YOU MUST FOLLOW THESE:
+- DO NOT use asterisks (*) for any purpose - no bold, no italic
+- DO NOT use markdown formatting of any kind
+- DO NOT use ** for bold text
+- DO NOT use * for italic text  
+- DO NOT use # for headers
+- DO NOT use backticks for code
+- DO NOT use any special formatting characters
+- Write EVERYTHING as plain text only
+- For emphasis, use CAPITAL LETTERS or write "Important:" before key points
+
+Educational Focus:
 - Identify 2-3 core concepts that matter most for understanding the topic
 - Provide concrete examples or analogies when helpful
 - Highlight practical applications or real-world connections
 - Point out common misconceptions or key distinctions
 - Incorporate current information when it enhances understanding
 
-**Citation Format:**
+Citation Format:
 - Use inline citations [1], [2], [3] etc. directly after statements that reference source material
 - Example: "The inflation rate reached 2.4% in October 2024[1]."
 - Do NOT include a separate sources section at the end
 - Number citations sequentially as they appear in the text
 
-Remember: Your goal is rapid learning, not comprehensive coverage. Be the expert who knows what matters most.`
+Remember: Your goal is rapid learning, not comprehensive coverage. Be the expert who knows what matters most. Write everything as plain text without any special formatting characters.`
 
 export async function* streamCompletion(
   messages: LLMMessage[],
@@ -45,7 +56,7 @@ export async function* streamCompletion(
 ) {
   const {
     model = 'sonar',
-    temperature = 0.7,
+    temperature = 0.3,
     maxTokens = 2000,
     systemPrompt = DEFAULT_SYSTEM_PROMPT
   } = options
@@ -90,8 +101,59 @@ export async function* streamCompletion(
     let citationMetadata: Array<{url: string, title?: string, date?: string}> = []
     let contentBuffer = ''
     
+    // Helper function to strip any markdown formatting that gets through
+    const stripMarkdown = (text: string): string => {
+      const originalText = text
+      
+      // Test case for debugging
+      if (text.includes('**Other Contenders:**')) {
+        console.log('Found exact pattern to strip:', text)
+      }
+      
+      // First, handle complete bold patterns (including when followed by punctuation)
+      text = text.replace(/\*\*\*([^*]+)\*\*\*/g, '$1')  // Triple asterisks
+      text = text.replace(/\*\*([^*]+)\*\*/g, '$1')      // Double asterisks
+      
+      // Handle italic (but not interfere with bold)
+      text = text.replace(/(?<!\*)\*(?!\*)([^*]+)(?<!\*)\*(?!\*)/g, '$1')
+      
+      // Now handle incomplete/malformed patterns
+      // Remove double asterisks at the beginning of text or after whitespace
+      text = text.replace(/(^|\s)\*\*(\S)/g, '$1$2')
+      // Remove double asterisks at the end of text or before punctuation
+      text = text.replace(/(\S)\*\*($|[\s:,.!?])/g, '$1$2')
+      
+      // Clean up any remaining sequences of asterisks
+      text = text.replace(/\*{2,}/g, '')  // Remove 2 or more asterisks in a row
+      
+      // Remove single asterisks at start of lines (lists)
+      text = text.replace(/^\*\s/gm, '')
+      
+      // Remove code blocks
+      text = text.replace(/```[\s\S]*?```/g, (match) => {
+        const code = match.slice(3, -3).trim()
+        return code
+      })
+      // Remove inline code
+      text = text.replace(/`([^`]+)`/g, '$1')
+      // Remove headers
+      text = text.replace(/^#{1,6}\s+(.+)$/gm, '$1')
+      // Remove underscores used for emphasis
+      text = text.replace(/__([^_]+)__/g, '$1')
+      text = text.replace(/_([^_]+)_/g, '$1')
+      
+      if (originalText !== text && originalText.includes('**')) {
+        console.log('Markdown stripped:', { original: originalText, cleaned: text })
+      }
+      
+      return text
+    }
+    
     // Helper function to replace citation references with markdown links that include metadata
     const processCitations = (text: string, citations: string[], metadata: Array<{url: string, title?: string, date?: string}>): string => {
+      // First strip any markdown formatting
+      text = stripMarkdown(text)
+      
       if (citations.length === 0) return text
       
       // Replace [1], [2], etc. with markdown links that include metadata as hash parameters
@@ -166,22 +228,16 @@ export async function* streamCompletion(
               // Add to content buffer
               contentBuffer += content
               
-              // Check if we have a complete citation reference
-              // Process and yield content up to the last complete citation or sentence
-              const lastBracket = contentBuffer.lastIndexOf(']')
-              if (lastBracket !== -1) {
-                // Check if there's an incomplete citation after the last bracket
-                const afterBracket = contentBuffer.substring(lastBracket + 1)
-                if (!afterBracket.includes('[')) {
-                  // Safe to process up to and including the last bracket
-                  const toProcess = contentBuffer.substring(0, lastBracket + 1)
-                  const processed = processCitations(toProcess, citations, citationMetadata)
-                  yield processed
-                  contentBuffer = contentBuffer.substring(lastBracket + 1)
-                }
-              } else if (contentBuffer.length > 100 && !contentBuffer.includes('[')) {
-                // If no brackets and buffer is getting long, process it
-                yield processCitations(contentBuffer, citations, citationMetadata)
+              // Only process if we have enough content or a clear break point
+              // Look for natural break points: end of sentence, paragraph, or citation
+              const hasCompleteSentence = /[.!?]\s*$/.test(contentBuffer)
+              const hasNewline = contentBuffer.includes('\n')
+              const hasCitation = contentBuffer.includes('[') && contentBuffer.includes(']')
+              
+              if (hasCompleteSentence || hasNewline || hasCitation || contentBuffer.length > 200) {
+                // Process and yield the buffered content
+                const processed = processCitations(contentBuffer, citations, citationMetadata)
+                yield processed
                 contentBuffer = ''
               }
             }

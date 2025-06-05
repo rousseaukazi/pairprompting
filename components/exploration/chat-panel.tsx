@@ -4,8 +4,6 @@ import { useState, useRef, useEffect, useLayoutEffect } from 'react'
 import { Button } from '@/components/ui/button'
 import { Send, Loader2, ArrowUpRight, Highlighter, Check, X, Sparkles } from 'lucide-react'
 import { toast } from 'sonner'
-import ReactMarkdown from 'react-markdown'
-import remarkGfm from 'remark-gfm'
 import { isMobile } from '@/lib/utils'
 
 type Message = {
@@ -37,9 +35,73 @@ export function ChatPanel({ explorationId, onHighlight }: ChatPanelProps) {
   const reviewEditorRef = useRef<HTMLDivElement | null>(null)
   const [showPolishTooltip, setShowPolishTooltip] = useState(false)
 
-  // Helper function to convert markdown to HTML for contentEditable
-  const markdownToHtml = (markdown: string): string => {
-    let html = markdown
+  // Helper function to render plain text with citations
+  const renderTextWithCitations = (content: string) => {
+    // Split the content by citation patterns
+    const parts = content.split(/(\[\d+\](?:\([^)]+\))?)/g)
+    
+    return parts.map((part, index) => {
+      // Check if this is a citation with URL
+      const citationWithUrlMatch = part.match(/^\[(\d+)\]\(([^)]+)\)$/)
+      if (citationWithUrlMatch) {
+        const [, num, url] = citationWithUrlMatch
+        
+        // Parse metadata from URL hash parameters
+        let metadata = { url, title: undefined as string | undefined, date: undefined as string | undefined }
+        try {
+          const urlObj = new URL(url, window.location.origin)
+          const hashParams = new URLSearchParams(urlObj.hash.slice(1))
+          metadata.url = urlObj.origin + urlObj.pathname + urlObj.search
+          if (hashParams.has('title')) {
+            metadata.title = hashParams.get('title') || undefined
+          }
+          if (hashParams.has('date')) {
+            metadata.date = hashParams.get('date') || undefined
+          }
+        } catch (e) {
+          metadata.url = url
+        }
+        
+        return (
+          <span
+            key={index}
+            className="inline-flex items-center justify-center ml-0.5 px-1.5 py-0.5 text-[10px] font-medium bg-blue-100 dark:bg-blue-600 text-blue-700 dark:text-blue-100 rounded-full no-underline"
+          >
+            {num}
+          </span>
+        )
+      }
+      
+      // Check if this is a plain citation
+      const plainCitationMatch = part.match(/^\[(\d+)\]$/)
+      if (plainCitationMatch) {
+        const [, num] = plainCitationMatch
+        return (
+          <span
+            key={index}
+            className="inline-flex items-center justify-center ml-0.5 px-1.5 py-0.5 text-[10px] font-medium bg-blue-100 dark:bg-blue-600 text-blue-700 dark:text-blue-100 rounded-full"
+          >
+            {num}
+          </span>
+        )
+      }
+      
+      // Regular text - preserve line breaks
+      return part.split('\n').map((line, lineIndex) => (
+        <span key={`${index}-${lineIndex}`}>
+          {lineIndex > 0 && <br />}
+          {line}
+        </span>
+      ))
+    })
+  }
+
+  // Helper function to convert plain text to HTML for contentEditable
+  const textToHtml = (text: string): string => {
+    let html = text
+    
+    // Clean up any zero-width spaces or invisible characters
+    html = html.replace(/[\u200B\u200C\u200D\uFEFF]/g, '')
     
     // Process citations with URLs - make them non-editable
     html = html.replace(/\[(\d+)\]\(([^)]+)\)/g, (match: string, num: string, url: string) => {
@@ -49,77 +111,31 @@ export function ChatPanel({ explorationId, onHighlight }: ChatPanelProps) {
     // Process plain citations - make them non-editable
     html = html.replace(/\[(\d+)\]/g, '<span class="inline-flex items-center justify-center ml-0.5 px-1.5 py-0.5 text-[10px] font-medium bg-blue-100 dark:bg-blue-600 text-blue-700 dark:text-blue-100 rounded-full" contenteditable="false">$1</span>')
     
-    // Process code blocks first (triple backticks)
-    html = html.replace(/```([^`]+)```/g, '<pre><code>$1</code></pre>')
-    
-    // Process inline code (single backticks)
-    html = html.replace(/`([^`]+)`/g, '<code>$1</code>')
-    
-    // Process headers
-    html = html.replace(/^### (.+)$/gm, '<h3>$1</h3>')
-    html = html.replace(/^## (.+)$/gm, '<h2>$1</h2>')
-    html = html.replace(/^# (.+)$/gm, '<h1>$1</h1>')
-    
-    // Process bold first (to handle **bold *italic* text**)
-    html = html.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>')
-    
-    // Process italic (but not if it's part of a bold marker)
-    html = html.replace(/(?<![*])\*([^*]+)\*(?![*])/g, '<em>$1</em>')
-    
-    // Process line breaks in paragraphs
+    // Process line breaks to paragraphs
     const lines = html.split('\n')
-    let inList = false
-    let inBlockquote = false
     let processedLines = []
     
     for (let i = 0; i < lines.length; i++) {
       const line = lines[i].trim()
       
-      // Handle lists
-      if (line.startsWith('- ')) {
-        if (!inList) {
-          processedLines.push('<ul>')
-          inList = true
-        }
-        processedLines.push('<li>' + line.substring(2) + '</li>')
+      // Skip completely empty lines that only have whitespace
+      if (!line) {
+        processedLines.push('<p><br></p>')
+        continue
       }
-      // Handle blockquotes
-      else if (line.startsWith('> ')) {
-        if (inList) {
-          processedLines.push('</ul>')
-          inList = false
-        }
-        processedLines.push('<blockquote>' + line.substring(2) + '</blockquote>')
-      }
-      // Handle other content
-      else {
-        if (inList) {
-          processedLines.push('</ul>')
-          inList = false
-        }
-        
-        if (line && !line.startsWith('<')) {
-          // Don't wrap if it's already an HTML tag
-          processedLines.push('<p>' + line + '</p>')
-        } else if (line) {
-          processedLines.push(line)
-        }
-      }
-    }
-    
-    // Close any open list
-    if (inList) {
-      processedLines.push('</ul>')
+      
+      // Wrap lines in paragraphs
+      processedLines.push('<p>' + line + '</p>')
     }
     
     return processedLines.join('')
   }
 
-  // Helper function to convert HTML from contentEditable to markdown
-  const htmlToMarkdown = (html: string): string => {
+  // Helper function to convert HTML from contentEditable to plain text
+  const htmlToText = (html: string): string => {
     let content = html
     
-    console.log('htmlToMarkdown input:', html)
+    console.log('htmlToText input:', html)
     
     // First, handle citation spans with URLs - preserve the full citation format
     content = content.replace(/<span[^>]*data-citation-url="([^"]*)"[^>]*>(\d+)<\/span>/g, (match: string, url: string, num: string) => {
@@ -130,32 +146,13 @@ export function ChatPanel({ explorationId, onHighlight }: ChatPanelProps) {
     // Handle plain citation spans
     content = content.replace(/<span[^>]*class="[^"]*rounded-full[^"]*"[^>]*>(\d+)<\/span>/g, '[$1]')
     
-    // Convert headers back
-    content = content.replace(/<h1[^>]*>(.*?)<\/h1>/gi, '# $1')
-    content = content.replace(/<h2[^>]*>(.*?)<\/h2>/gi, '## $1')
-    content = content.replace(/<h3[^>]*>(.*?)<\/h3>/gi, '### $1')
-    
-    // Convert blockquotes back
-    content = content.replace(/<blockquote[^>]*>(.*?)<\/blockquote>/gi, '> $1')
-    
-    // Convert strong/bold tags back to ** (handle both <strong> and <b>)
-    content = content.replace(/<strong[^>]*>(.*?)<\/strong>/gi, '**$1**')
-    content = content.replace(/<b[^>]*>(.*?)<\/b>/gi, '**$1**')
-    
-    // Convert em/italic tags back to * (handle both <em> and <i>)
-    content = content.replace(/<em[^>]*>(.*?)<\/em>/gi, '*$1*')
-    content = content.replace(/<i[^>]*>(.*?)<\/i>/gi, '*$1*')
-    
-    // Convert code tags back to backticks
-    content = content.replace(/<code[^>]*>(.*?)<\/code>/gi, '`$1`')
-    
-    // Handle lists - convert li tags
-    content = content.replace(/<li[^>]*>(.*?)<\/li>/gi, '- $1\n')
-    // Remove ul/ol tags
-    content = content.replace(/<\/?[uo]l[^>]*>/gi, '')
-    
-    // Convert paragraphs to double newlines
-    content = content.replace(/<p[^>]*>(.*?)<\/p>/gi, '$1\n\n')
+    // Convert paragraphs to newlines
+    content = content.replace(/<p[^>]*>(.*?)<\/p>/gi, (match, text) => {
+      const trimmed = text.trim()
+      // Skip empty paragraphs or those with just <br>
+      if (!trimmed || trimmed === '<br>') return ''
+      return trimmed + '\n\n'
+    })
     
     // Convert line breaks
     content = content.replace(/<br\s*\/?>/gi, '\n')
@@ -180,27 +177,23 @@ export function ChatPanel({ explorationId, onHighlight }: ChatPanelProps) {
     // Clean up spaces after newlines
     content = content.replace(/\n +/g, '\n')
     
-    console.log('htmlToMarkdown output:', content)
+    console.log('htmlToText output:', content)
     
     return content
   }
 
-  // Helper function to strip citations from markdown text
+  // Helper function to strip citations from text
   const stripCitations = (text: string): string => {
     // Replace [n](url#metadata) with just [n]
     return text.replace(/\[(\d+)\]\([^)]+\)/g, '[$1]')
   }
 
-  // Helper function to get plain text without any markdown or citations
+  // Helper function to get plain text without any citations
   const getPlainText = (text: string): string => {
     // First strip citations to simple format
     let plain = stripCitations(text)
-    // Then remove all markdown formatting
-    plain = plain.replace(/\*\*([^*]+)\*\*/g, '$1') // Bold
-    plain = plain.replace(/\*([^*]+)\*/g, '$1') // Italic
-    plain = plain.replace(/`([^`]+)`/g, '$1') // Code
+    // Then remove citation numbers
     plain = plain.replace(/\[(\d+)\]/g, '[$1]') // Keep citation numbers
-    plain = plain.replace(/[#_~]/g, '') // Other markdown chars
     return plain.trim()
   }
 
@@ -348,6 +341,9 @@ export function ChatPanel({ explorationId, onHighlight }: ChatPanelProps) {
     let selectedContent = ''
     const highlightedMessageIndices: number[] = []
     
+    console.log('Canvas exists:', !!canvas)
+    console.log('Offscreen canvas exists:', !!offscreenCanvas)
+    
     if (canvas && offscreenCanvas) {
       const dpr = window.devicePixelRatio || 1
       const offscreenCtx = offscreenCanvas.getContext('2d')!
@@ -356,8 +352,10 @@ export function ChatPanel({ explorationId, onHighlight }: ChatPanelProps) {
       
       // Process each assistant message bubble
       assistantElems.forEach((bubble, bubbleIndex) => {
-        // Get the React Markdown content
-        const contentElement = bubble.querySelector('.prose') as HTMLElement
+        console.log(`Processing bubble ${bubbleIndex}`)
+        // Get the text content container (first div child of the bubble)
+        const contentElement = bubble.querySelector('div') as HTMLElement
+        console.log(`Content element found in bubble ${bubbleIndex}:`, !!contentElement)
         if (!contentElement) return
         
         // Get all text nodes and their positions
@@ -388,6 +386,8 @@ export function ChatPanel({ explorationId, onHighlight }: ChatPanelProps) {
         // Check which elements contain highlighted text
         const highlightedElements = new Set<Element>()
         
+        console.log(`Bubble ${bubbleIndex} has ${textNodes.length} text nodes`)
+        
         // Check each text node for highlight
         textNodes.forEach(({node, rect}) => {
           // Sample multiple points across the text node
@@ -404,12 +404,14 @@ export function ChatPanel({ explorationId, onHighlight }: ChatPanelProps) {
           for (const [x, y] of samples) {
             const pixelData = offscreenCtx.getImageData(Math.floor(x * dpr), Math.floor(y * dpr), 1, 1).data
             if (pixelData[3] > 0) {
+              console.log(`Found highlight at ${x}, ${y} with alpha ${pixelData[3]}`)
               // This text node is highlighted, find its parent block element
               let parent = node.parentElement
               while (parent && parent !== contentElement) {
                 // Look for block-level elements
-                if (['P', 'H1', 'H2', 'H3', 'H4', 'H5', 'H6', 'LI', 'BLOCKQUOTE', 'PRE', 'DIV'].includes(parent.tagName)) {
+                if (['P', 'H1', 'H2', 'H3', 'H4', 'H5', 'H6', 'LI', 'BLOCKQUOTE', 'PRE', 'DIV', 'SPAN'].includes(parent.tagName)) {
                   highlightedElements.add(parent)
+                  console.log(`Added highlighted element: ${parent.tagName}`)
                   break
                 }
                 parent = parent.parentElement
@@ -418,6 +420,8 @@ export function ChatPanel({ explorationId, onHighlight }: ChatPanelProps) {
             }
           }
         })
+        
+        console.log(`Bubble ${bubbleIndex} has ${highlightedElements.size} highlighted elements`)
         
         // Now extract the markdown content from highlighted elements
         if (highlightedElements.size > 0) {
@@ -430,47 +434,84 @@ export function ChatPanel({ explorationId, onHighlight }: ChatPanelProps) {
             // Track which message indices have highlighted content
             highlightedMessageIndices.push(messageIndex)
             
-            // Parse the markdown to find the corresponding sections
-            const lines = originalMessage.content.split('\n')
-            const selectedLines: string[] = []
+            // Get the full content and split into lines
+            const fullContent = originalMessage.content
+            const lines = fullContent.split('\n')
+            console.log('Original content lines:', lines)
             
-            // Convert highlighted elements to their text content for matching
-            const highlightedTexts = Array.from(highlightedElements).map(el => 
-              el.textContent?.trim() || ''
-            ).filter(text => text.length > 0)
+            const selectedLineIndices = new Set<number>()
             
-            // Go through each line and check if it's part of highlighted content
-            for (const line of lines) {
-              // Get plain text version of the line for comparison
-              const linePlainText = getPlainText(line)
+            // For each highlighted element, find which lines it corresponds to
+            highlightedElements.forEach(element => {
+              const elementText = element.textContent?.trim() || ''
+              if (!elementText) return
               
-              // Check if this line matches any highlighted text
-              const isHighlighted = highlightedTexts.some(highlightedText => {
-                // Normalize the highlighted text too (remove extra spaces, etc)
-                const normalizedHighlight = highlightedText.replace(/\s+/g, ' ').trim()
-                const normalizedLine = linePlainText.replace(/\s+/g, ' ').trim()
+              console.log('Looking for highlighted text:', elementText)
+              
+              // Test case for debugging
+              if (elementText.toLowerCase().includes('this is a bold line')) {
+                console.log('TEST CASE: Found "this is a bold line"')
+                lines.forEach((line, idx) => {
+                  console.log(`Line ${idx}: "${line}"`)
+                })
+              }
+              
+              // Check each line to see if it contains this highlighted text
+              lines.forEach((line, index) => {
+                // Simplify the line for comparison (just trim whitespace)
+                const plainLine = line
+                  .replace(/\[(\d+)\](\([^)]+\))?/g, '[$1]') // Simplify citations
+                  .trim()
                 
-                // Check for matches (partial or full)
-                return normalizedHighlight.includes(normalizedLine) || 
-                       normalizedLine.includes(normalizedHighlight) ||
-                       // Also check if they share significant overlap
-                       (normalizedLine.length > 10 && normalizedHighlight.length > 10 && 
-                        (normalizedLine.includes(normalizedHighlight.substring(0, 20)) ||
-                         normalizedHighlight.includes(normalizedLine.substring(0, 20))))
+                const normalizedElement = elementText.replace(/\s+/g, ' ').trim().toLowerCase()
+                const normalizedPlain = plainLine.replace(/\s+/g, ' ').trim().toLowerCase()
+                
+                // If this line contains the highlighted text, include it
+                if (normalizedPlain && normalizedElement) {
+                  // Check for exact match first
+                  if (normalizedPlain === normalizedElement) {
+                    console.log(`Line ${index} exact match: "${line}"`)
+                    selectedLineIndices.add(index)
+                  }
+                  // Then check for contains
+                  else if (normalizedPlain.includes(normalizedElement) || 
+                           normalizedElement.includes(normalizedPlain)) {
+                    console.log(`Line ${index} partial match: "${line}"`)
+                    selectedLineIndices.add(index)
+                  }
+                  // Check word-by-word overlap for longer texts
+                  else if (normalizedElement.length > 10) {
+                    const elementWords = normalizedElement.split(' ')
+                    const lineWords = normalizedPlain.split(' ')
+                    const commonWords = elementWords.filter(word => lineWords.includes(word))
+                    
+                    if (commonWords.length >= Math.min(3, elementWords.length * 0.7)) {
+                      console.log(`Line ${index} word match: "${line}"`)
+                      selectedLineIndices.add(index)
+                    }
+                  }
+                }
               })
-              
-              if (isHighlighted && line.trim()) {
-                // Push the original line with full citations preserved
-                selectedLines.push(line)
-              }
-            }
+            })
             
-            // Join selected lines with proper spacing
-            if (selectedLines.length > 0) {
+            // Build the selected content from the original lines with formatting preserved
+            const sortedIndices = Array.from(selectedLineIndices).sort((a, b) => a - b)
+            
+            if (sortedIndices.length > 0) {
               if (selectedContent) {
-                selectedContent += '\n\n' // Add spacing between different selections
+                selectedContent += '\n\n'
               }
-              selectedContent += selectedLines.join('\n')
+              
+              // Include all lines from first to last selected to maintain context
+              const firstIndex = sortedIndices[0]
+              const lastIndex = sortedIndices[sortedIndices.length - 1]
+              
+              console.log(`Selecting lines ${firstIndex} to ${lastIndex}`)
+              
+              for (let i = firstIndex; i <= lastIndex; i++) {
+                if (i > firstIndex) selectedContent += '\n'
+                selectedContent += lines[i]
+              }
             }
           }
         }
@@ -478,7 +519,10 @@ export function ChatPanel({ explorationId, onHighlight }: ChatPanelProps) {
     }
 
     selectedContent = selectedContent.trim()
-    console.log('Selected content with markdown:', selectedContent)
+    console.log('=== Highlighting Complete ===')
+    console.log('selectedContent:', selectedContent)
+    console.log('selectedContent length:', selectedContent.length)
+    console.log('Contains citations:', /\[\d+\]/.test(selectedContent))
     
     // Find user contexts based on highlighted message indices
     let userContext = ''
@@ -516,11 +560,16 @@ export function ChatPanel({ explorationId, onHighlight }: ChatPanelProps) {
       offscreenCtx.clearRect(0, 0, offscreenCanvas.width, offscreenCanvas.height)
     }
 
+    console.log('About to check if selectedContent exists:', !!selectedContent)
     if (selectedContent) {
+      console.log('Setting review content and opening modal')
       // Show review modal instead of immediately pushing
       setReviewContent(selectedContent)
       setReviewContext(userContext)
       setReviewModalOpen(true)
+      console.log('Modal should now be open')
+    } else {
+      console.log('No content selected, not opening modal')
     }
     
     // remove canvas overlay after timeout
@@ -640,6 +689,9 @@ export function ChatPanel({ explorationId, onHighlight }: ChatPanelProps) {
           }
         }
       }
+      
+      // Log the final assistant message
+      console.log('Final assistant message:', assistantMessage)
     } catch (error) {
       console.error('Chat error:', error)
       toast.error('Failed to send message')
@@ -681,11 +733,30 @@ export function ChatPanel({ explorationId, onHighlight }: ChatPanelProps) {
   // Initialize the editor content when modal opens
   useEffect(() => {
     if (reviewModalOpen && reviewEditorRef.current && reviewContent) {
-      // Use the shared function to convert markdown to HTML
-      const html = markdownToHtml(reviewContent)
+      console.log('Initializing editor with content:', reviewContent)
+      // Use the shared function to convert text to HTML
+      const html = textToHtml(reviewContent)
+      console.log('Converted to HTML:', html)
       
       // Set the HTML content
       reviewEditorRef.current.innerHTML = html
+      
+      // Disable all execCommand formatting
+      const preventFormat = (e: Event) => {
+        e.preventDefault()
+        return false
+      }
+      
+      // Override document.execCommand to prevent formatting
+      const originalExecCommand = document.execCommand
+      document.execCommand = function(command: string, showUI?: boolean, value?: string) {
+        // Allow only non-formatting commands
+        const allowedCommands = ['delete', 'insertText', 'insertLineBreak', 'insertParagraph']
+        if (allowedCommands.includes(command)) {
+          return originalExecCommand.call(document, command, showUI!, value!)
+        }
+        return false
+      }
       
       // Focus and place cursor at end
       reviewEditorRef.current.focus()
@@ -695,6 +766,11 @@ export function ChatPanel({ explorationId, onHighlight }: ChatPanelProps) {
       range.collapse(false)
       sel?.removeAllRanges()
       sel?.addRange(range)
+      
+      // Cleanup function to restore execCommand
+      return () => {
+        document.execCommand = originalExecCommand
+      }
     }
   }, [reviewModalOpen, reviewContent])
 
@@ -703,6 +779,11 @@ export function ChatPanel({ explorationId, onHighlight }: ChatPanelProps) {
     if (!reviewModalOpen) return
 
     const handleKeyDown = (e: KeyboardEvent) => {
+      // Don't handle shortcuts if the target is a button or the push is already in progress
+      if ((e.target as HTMLElement).tagName === 'BUTTON' || pushingBlock) {
+        return
+      }
+      
       // Escape to close
       if (e.key === 'Escape') {
         e.preventDefault()
@@ -715,9 +796,12 @@ export function ChatPanel({ explorationId, onHighlight }: ChatPanelProps) {
       if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {
         e.preventDefault()
         
+        // Prevent double submission
+        if (pushingBlock) return
+        
         // Get content from the editor
         if (reviewEditorRef.current) {
-          const content = htmlToMarkdown(reviewEditorRef.current.innerHTML)
+          const content = htmlToText(reviewEditorRef.current.innerHTML)
           console.log('CMD+Enter - content:', content)
           console.log('CMD+Enter - reviewContext:', reviewContext)
           
@@ -744,7 +828,7 @@ export function ChatPanel({ explorationId, onHighlight }: ChatPanelProps) {
 
     document.addEventListener('keydown', handleKeyDown)
     return () => document.removeEventListener('keydown', handleKeyDown)
-  }, [reviewModalOpen, reviewContent, reviewContext, onHighlight])
+  }, [reviewModalOpen, reviewContent, reviewContext, onHighlight, pushingBlock])
 
   const handlePolish = async () => {
     if (polishingContent || (!reviewContext && !reviewContent && !reviewEditorRef.current)) return
@@ -755,7 +839,7 @@ export function ChatPanel({ explorationId, onHighlight }: ChatPanelProps) {
       // Get current content from the editor
       let currentContent = reviewContent
       if (reviewEditorRef.current) {
-        currentContent = htmlToMarkdown(reviewEditorRef.current.innerHTML)
+        currentContent = htmlToText(reviewEditorRef.current.innerHTML)
       }
       
       const response = await fetch('/api/polish', {
@@ -782,8 +866,8 @@ export function ChatPanel({ explorationId, onHighlight }: ChatPanelProps) {
         if (data.content && reviewEditorRef.current) {
           setReviewContent(data.content)
           
-          // Convert the polished markdown to HTML and update the editor
-          const html = markdownToHtml(data.content)
+          // Convert the polished text to HTML and update the editor
+          const html = textToHtml(data.content)
           
           // Update the editor
           reviewEditorRef.current.innerHTML = html
@@ -847,73 +931,8 @@ export function ChatPanel({ explorationId, onHighlight }: ChatPanelProps) {
                 data-message-role={message.role}
               >
                 {message.role === 'assistant' ? (
-                  <div className="prose prose-sm max-w-none prose-headings:text-gray-900 prose-p:text-gray-900 prose-p:mb-3 prose-p:leading-relaxed prose-strong:text-gray-900 prose-em:text-gray-700 prose-code:text-gray-800 prose-code:bg-gray-200 prose-code:px-1 prose-pre:bg-gray-800 prose-pre:text-gray-100 prose-ul:mb-3 prose-ol:mb-3 prose-li:mb-1 prose-blockquote:border-l-4 prose-blockquote:border-gray-300 prose-blockquote:pl-4 prose-blockquote:italic prose-hr:my-4 prose-table:my-4 prose-thead:bg-gray-50 prose-th:border prose-th:border-gray-300 prose-th:px-3 prose-th:py-2 prose-th:font-semibold prose-td:border prose-td:border-gray-300 prose-td:px-3 prose-td:py-2">
-                    <ReactMarkdown 
-                      remarkPlugins={[remarkGfm]}
-                      components={{
-                        p: ({ children }) => <p className="mb-3 last:mb-0">{children}</p>,
-                        br: () => <br className="mb-2" />,
-                        ul: ({ children }) => <ul className="mb-3 space-y-1">{children}</ul>,
-                        ol: ({ children }) => <ol className="mb-3 space-y-1">{children}</ol>,
-                        li: ({ children }) => <li className="leading-relaxed">{children}</li>,
-                        h1: ({ children }) => <h1 className="mb-4 mt-6 first:mt-0">{children}</h1>,
-                        h2: ({ children }) => <h2 className="mb-3 mt-5 first:mt-0">{children}</h2>,
-                        h3: ({ children }) => <h3 className="mb-2 mt-4 first:mt-0">{children}</h3>,
-                        blockquote: ({ children }) => <blockquote className="my-4 border-l-4 border-gray-300">{children}</blockquote>,
-                        hr: () => <hr className="my-6 border-gray-300" />,
-                        a: ({ href, children }) => {
-                          // Extract text content from children
-                          let childText = ''
-                          if (typeof children === 'string') {
-                            childText = children
-                          } else if (Array.isArray(children)) {
-                            childText = children.join('')
-                          } else if (children && typeof children === 'object' && 'props' in children && typeof (children as any).props?.children !== 'undefined') {
-                            childText = String((children as any).props.children)
-                          } else {
-                            childText = String(children || '')
-                          }
-                          
-                          // Check if this is a citation - just a number
-                          const isCitation = /^\d+$/.test(childText.trim())
-                          
-                          if (isCitation && href) {
-                            const citationNumber = childText.trim()
-                            
-                            // Parse metadata from URL hash parameters
-                            let metadata = { url: href, title: undefined as string | undefined, date: undefined as string | undefined }
-                            try {
-                              const url = new URL(href, window.location.origin)
-                              const hashParams = new URLSearchParams(url.hash.slice(1))
-                              metadata.url = url.origin + url.pathname + url.search
-                              if (hashParams.has('title')) {
-                                metadata.title = hashParams.get('title') || undefined
-                              }
-                              if (hashParams.has('date')) {
-                                metadata.date = hashParams.get('date') || undefined
-                              }
-                            } catch (e) {
-                              metadata.url = href
-                            }
-                            
-                            return (
-                              <span className="inline-flex items-center justify-center ml-0.5 px-1.5 py-0.5 text-[10px] font-medium bg-blue-100 dark:bg-blue-600 text-blue-700 dark:text-blue-100 rounded-full no-underline">
-                                {citationNumber}
-                              </span>
-                            )
-                          }
-                          
-                          // Regular link
-                          return (
-                            <a href={href} target="_blank" rel="noopener noreferrer" className="text-blue-600 hover:text-blue-800 underline">
-                              {children}
-                            </a>
-                          )
-                        },
-                      }}
-                    >
-                      {message.content}
-                    </ReactMarkdown>
+                  <div className="text-sm leading-relaxed whitespace-pre-wrap">
+                    {renderTextWithCitations(message.content)}
                   </div>
                 ) : (
                   <p className="whitespace-pre-wrap">{message.content}</p>
@@ -1026,21 +1045,68 @@ export function ChatPanel({ explorationId, onHighlight }: ChatPanelProps) {
                 ref={reviewEditorRef}
                 contentEditable={!pushingBlock && !polishingContent}
                 suppressContentEditableWarning
+                onPaste={(e) => {
+                  // Prevent default paste to strip formatting
+                  e.preventDefault()
+                  
+                  // Get plain text from clipboard
+                  const text = e.clipboardData.getData('text/plain')
+                  
+                  // Insert plain text at cursor position
+                  const selection = window.getSelection()
+                  if (selection && selection.rangeCount > 0) {
+                    const range = selection.getRangeAt(0)
+                    range.deleteContents()
+                    
+                    // Split text by newlines and create proper structure
+                    const lines = text.split('\n')
+                    lines.forEach((line, index) => {
+                      if (index > 0) {
+                        // Add a new paragraph for each line
+                        const br = document.createElement('br')
+                        range.insertNode(br)
+                      }
+                      if (line) {
+                        const textNode = document.createTextNode(line)
+                        range.insertNode(textNode)
+                      }
+                    })
+                    
+                    // Move cursor to end of pasted content
+                    range.collapse(false)
+                    selection.removeAllRanges()
+                    selection.addRange(range)
+                  }
+                }}
+                onBeforeInput={(e: any) => {
+                  // Prevent formatting commands
+                  if (e.inputType && e.inputType.startsWith('format')) {
+                    e.preventDefault()
+                  }
+                }}
                 onKeyDown={(e) => {
-                  // Cmd/Ctrl + B for bold
+                  // Prevent all formatting shortcuts
                   if (e.key === 'b' && (e.metaKey || e.ctrlKey)) {
                     e.preventDefault()
-                    document.execCommand('bold', false)
+                    return
                   }
-                  // Cmd/Ctrl + I for italic
                   if (e.key === 'i' && (e.metaKey || e.ctrlKey)) {
                     e.preventDefault()
-                    document.execCommand('italic', false)
+                    return
                   }
+                  if (e.key === 'u' && (e.metaKey || e.ctrlKey)) {
+                    e.preventDefault()
+                    return
+                  }
+                  
                   // Cmd/Ctrl + Enter to push
                   if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {
                     e.preventDefault()
-                    const content = htmlToMarkdown(e.currentTarget.innerHTML)
+                    
+                    // Prevent double submission
+                    if (pushingBlock) return
+                    
+                    const content = htmlToText(e.currentTarget.innerHTML)
                     if (content.trim() && onHighlight) {
                       setPushingBlock(true)
                       Promise.resolve(onHighlight(content.trim(), reviewContext))
@@ -1060,9 +1126,13 @@ export function ChatPanel({ explorationId, onHighlight }: ChatPanelProps) {
                     }
                   }
                 }}
-                className="w-full h-full min-h-[300px] p-4 bg-card text-foreground border border-border focus:outline-none focus:border-gray-400 prose prose-sm max-w-none prose-headings:text-gray-900 dark:prose-headings:text-gray-100 prose-p:text-gray-900 dark:prose-p:text-gray-100 prose-p:mb-3 prose-p:leading-relaxed prose-strong:text-gray-900 dark:prose-strong:text-gray-100 prose-em:text-gray-700 dark:prose-em:text-gray-300 prose-code:text-gray-800 dark:prose-code:text-gray-200 prose-code:bg-gray-200 dark:prose-code:bg-gray-700 prose-code:px-1 prose-pre:bg-gray-800 prose-pre:text-gray-100 prose-ul:mb-3 prose-ol:mb-3 prose-li:mb-1 prose-blockquote:border-l-4 prose-blockquote:border-gray-300 dark:prose-blockquote:border-gray-600 prose-blockquote:pl-4 prose-blockquote:italic prose-hr:my-4"
+                className="w-full h-full min-h-[300px] p-4 bg-card text-foreground border border-border focus:outline-none focus:border-gray-400"
                 style={{
-                  minHeight: '300px'
+                  minHeight: '300px',
+                  // Force plain text appearance
+                  fontWeight: 'normal',
+                  fontStyle: 'normal',
+                  textDecoration: 'none'
                 }}
               />
               
@@ -1106,10 +1176,13 @@ export function ChatPanel({ explorationId, onHighlight }: ChatPanelProps) {
               {/* Push Block button with hover state */}
               <Button
                 onClick={() => {
+                  // Prevent double-clicking
+                  if (pushingBlock) return
+                  
                   if (reviewEditorRef.current) {
-                    const content = htmlToMarkdown(reviewEditorRef.current.innerHTML)
+                    const content = htmlToText(reviewEditorRef.current.innerHTML)
                     console.log('Push block - raw HTML:', reviewEditorRef.current.innerHTML)
-                    console.log('Push block - converted markdown:', content)
+                    console.log('Push block - converted text:', content)
                     console.log('Push block - reviewContext:', reviewContext)
                     
                     if (content.trim() && onHighlight) {
