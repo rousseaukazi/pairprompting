@@ -2,9 +2,13 @@
 
 import { useState, useEffect, useRef } from 'react'
 import { Button } from '@/components/ui/button'
+import { DropdownMenu, DropdownMenuItem } from '@/components/ui/dropdown-menu'
+import { ConfirmationDialog } from '@/components/ui/confirmation-dialog'
 import { supabase } from '@/lib/supabase'
 import { useAuth } from '@clerk/nextjs'
 import { UserAvatar } from '@/components/user-avatar'
+import { MoreHorizontal, Edit, Trash2, X, Loader2 } from 'lucide-react'
+import { toast } from 'sonner'
 import type { Block, Comment } from '@/lib/supabase'
 
 type BlockWithComments = Block & {
@@ -31,6 +35,28 @@ export function DocumentView({ explorationId, title }: DocumentViewProps) {
   const [sortOrder, setSortOrder] = useState<'chrono' | 'reverse_chrono'>('reverse_chrono')
   const blocksEndRef = useRef<HTMLDivElement>(null)
   const { userId } = useAuth()
+
+  // Edit/Delete state
+  const [editingBlock, setEditingBlock] = useState<string | null>(null)
+  const [editingComment, setEditingComment] = useState<string | null>(null)
+  const [editBlockContent, setEditBlockContent] = useState('')
+  const [editBlockContext, setEditBlockContext] = useState('')
+  const [editCommentContent, setEditCommentContent] = useState('')
+  const [confirmDialog, setConfirmDialog] = useState<{
+    isOpen: boolean
+    title: string
+    message: string
+    onConfirm: () => void
+    type: 'block' | 'comment'
+    loading: boolean
+  }>({
+    isOpen: false,
+    title: '',
+    message: '',
+    onConfirm: () => {},
+    type: 'block',
+    loading: false
+  })
 
   // Helper function to render plain text with citations
   const renderTextWithCitations = (content: string) => {
@@ -60,7 +86,7 @@ export function DocumentView({ explorationId, title }: DocumentViewProps) {
         }
         
         return (
-          <span key={index} className="inline-flex items-center group relative">
+          <span key={index} className="inline-flex items-center relative citation-hover">
             <a
               href={metadata.url}
               target="_blank"
@@ -76,7 +102,7 @@ export function DocumentView({ explorationId, title }: DocumentViewProps) {
             </a>
             
             {/* Enhanced hover preview */}
-            <span className="absolute bottom-full left-0 mb-2 opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all duration-200 z-50 pointer-events-none">
+            <span className="citation-tooltip absolute bottom-full left-0 mb-2 opacity-0 invisible transition-all duration-200 z-50 pointer-events-none">
               <span className="bg-white dark:bg-gray-900 shadow-xl border border-gray-200 dark:border-gray-700 p-4 w-80 max-w-sm block">
                 {/* Title */}
                 {metadata.title && (
@@ -244,7 +270,7 @@ export function DocumentView({ explorationId, title }: DocumentViewProps) {
           filter: `exploration_id=eq.${explorationId}`,
         },
         (payload) => {
-          console.log('Received real-time block update:', payload)
+          console.log('Received real-time block insert:', payload)
           const newBlock = payload.new as BlockWithComments
           newBlock.comments = []
           setBlocks((current) => {
@@ -268,8 +294,40 @@ export function DocumentView({ explorationId, title }: DocumentViewProps) {
               return next
             })
           }, 2000)
-          
-          // Don't scroll - let the block animate in naturally
+        }
+      )
+      .on(
+        'postgres_changes',
+        {
+          event: 'UPDATE',
+          schema: 'public',
+          table: 'blocks',
+          filter: `exploration_id=eq.${explorationId}`,
+        },
+        (payload) => {
+          console.log('Received real-time block update:', payload)
+          const updatedBlock = payload.new as BlockWithComments
+          setBlocks((current) => 
+            current.map(block => 
+              block.id === updatedBlock.id 
+                ? { ...block, content: updatedBlock.content, context: updatedBlock.context }
+                : block
+            )
+          )
+        }
+      )
+      .on(
+        'postgres_changes',
+        {
+          event: 'DELETE',
+          schema: 'public',
+          table: 'blocks',
+          filter: `exploration_id=eq.${explorationId}`,
+        },
+        (payload) => {
+          console.log('Received real-time block delete:', payload)
+          const deletedBlock = payload.old as BlockWithComments
+          setBlocks((current) => current.filter(block => block.id !== deletedBlock.id))
         }
       )
       .subscribe((status) => {
@@ -287,10 +345,9 @@ export function DocumentView({ explorationId, title }: DocumentViewProps) {
           table: 'comments',
         },
         (payload) => {
-          console.log('Received real-time comment update:', payload)
+          console.log('Received real-time comment insert:', payload)
           const newComment = payload.new as Comment
           
-          // More efficient check - update the blocks state directly if block exists
           setBlocks((current) => {
             const blockExists = current.some(block => block.id === newComment.block_id)
             
@@ -312,6 +369,46 @@ export function DocumentView({ explorationId, title }: DocumentViewProps) {
             
             return current
           })
+        }
+      )
+      .on(
+        'postgres_changes',
+        {
+          event: 'UPDATE',
+          schema: 'public',
+          table: 'comments',
+        },
+        (payload) => {
+          console.log('Received real-time comment update:', payload)
+          const updatedComment = payload.new as Comment
+          setBlocks((current) => 
+            current.map(block => ({
+              ...block,
+              comments: block.comments?.map(comment => 
+                comment.id === updatedComment.id 
+                  ? { ...comment, content: updatedComment.content }
+                  : comment
+              ) || []
+            }))
+          )
+        }
+      )
+      .on(
+        'postgres_changes',
+        {
+          event: 'DELETE',
+          schema: 'public',
+          table: 'comments',
+        },
+        (payload) => {
+          console.log('Received real-time comment delete:', payload)
+          const deletedComment = payload.old as Comment
+          setBlocks((current) => 
+            current.map(block => ({
+              ...block,
+              comments: block.comments?.filter(comment => comment.id !== deletedComment.id) || []
+            }))
+          )
         }
       )
       .subscribe((status) => {
@@ -501,6 +598,179 @@ export function DocumentView({ explorationId, title }: DocumentViewProps) {
     }
   }
 
+  // Block edit/delete handlers
+  const handleEditBlock = (block: BlockWithComments) => {
+    setEditingBlock(block.id)
+    setEditBlockContent(block.content)
+    setEditBlockContext(block.context || '')
+  }
+
+  const handleDeleteBlock = (blockId: string) => {
+    setConfirmDialog({
+      isOpen: true,
+      title: 'Delete Block',
+      message: 'Are you sure you want to delete this block? This will also delete all comments associated with it.',
+      type: 'block',
+      loading: false,
+      onConfirm: () => confirmDeleteBlock(blockId)
+    })
+  }
+
+  const confirmDeleteBlock = async (blockId: string) => {
+    setConfirmDialog(prev => ({ ...prev, loading: true }))
+
+    try {
+      const response = await fetch(`/api/blocks/${blockId}`, {
+        method: 'DELETE',
+      })
+
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({}))
+        throw new Error(errorData.error || 'Failed to delete block')
+      }
+
+      // Optimistically remove the block
+      setBlocks(current => current.filter(block => block.id !== blockId))
+      toast.success('Block deleted successfully')
+      
+      setConfirmDialog(prev => ({ ...prev, isOpen: false, loading: false }))
+    } catch (error) {
+      console.error('Error deleting block:', error)
+      toast.error('Failed to delete block')
+      setConfirmDialog(prev => ({ ...prev, loading: false }))
+    }
+  }
+
+  const handleSaveBlock = async () => {
+    if (!editingBlock || !editBlockContent.trim()) return
+
+    try {
+      const response = await fetch(`/api/blocks/${editingBlock}`, {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          content: editBlockContent.trim(),
+          context: editBlockContext.trim() || null,
+        }),
+      })
+
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({}))
+        throw new Error(errorData.error || 'Failed to update block')
+      }
+
+      const { block: updatedBlock } = await response.json()
+
+      // Optimistically update the block
+      setBlocks(current => 
+        current.map(block => 
+          block.id === editingBlock 
+            ? { ...block, content: updatedBlock.content, context: updatedBlock.context }
+            : block
+        )
+      )
+
+      toast.success('Block updated successfully')
+      setEditingBlock(null)
+      setEditBlockContent('')
+      setEditBlockContext('')
+    } catch (error) {
+      console.error('Error updating block:', error)
+      toast.error('Failed to update block')
+    }
+  }
+
+  // Comment edit/delete handlers
+  const handleEditComment = (comment: Comment) => {
+    setEditingComment(comment.id)
+    setEditCommentContent(comment.content)
+  }
+
+  const handleDeleteComment = (commentId: string) => {
+    setConfirmDialog({
+      isOpen: true,
+      title: 'Delete Comment',
+      message: 'Are you sure you want to delete this comment?',
+      type: 'comment',
+      loading: false,
+      onConfirm: () => confirmDeleteComment(commentId)
+    })
+  }
+
+  const confirmDeleteComment = async (commentId: string) => {
+    setConfirmDialog(prev => ({ ...prev, loading: true }))
+
+    try {
+      const response = await fetch(`/api/comments/${commentId}`, {
+        method: 'DELETE',
+      })
+
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({}))
+        throw new Error(errorData.error || 'Failed to delete comment')
+      }
+
+      // Optimistically remove the comment
+      setBlocks(current => 
+        current.map(block => ({
+          ...block,
+          comments: block.comments?.filter(comment => comment.id !== commentId) || []
+        }))
+      )
+
+      toast.success('Comment deleted successfully')
+      setConfirmDialog(prev => ({ ...prev, isOpen: false, loading: false }))
+    } catch (error) {
+      console.error('Error deleting comment:', error)
+      toast.error('Failed to delete comment')
+      setConfirmDialog(prev => ({ ...prev, loading: false }))
+    }
+  }
+
+  const handleSaveComment = async (commentId: string) => {
+    if (!editCommentContent.trim()) return
+
+    try {
+      const response = await fetch(`/api/comments/${commentId}`, {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          content: editCommentContent.trim(),
+        }),
+      })
+
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({}))
+        throw new Error(errorData.error || 'Failed to update comment')
+      }
+
+      const { comment: updatedComment } = await response.json()
+
+      // Optimistically update the comment
+      setBlocks(current => 
+        current.map(block => ({
+          ...block,
+          comments: block.comments?.map(comment => 
+            comment.id === commentId 
+              ? { ...comment, content: updatedComment.content }
+              : comment
+          ) || []
+        }))
+      )
+
+      toast.success('Comment updated successfully')
+      setEditingComment(null)
+      setEditCommentContent('')
+    } catch (error) {
+      console.error('Error updating comment:', error)
+      toast.error('Failed to update comment')
+    }
+  }
+
   // Sort blocks based on user preference
   const sortedBlocks = [...blocks].sort((a, b) => {
     if (sortOrder === 'reverse_chrono') {
@@ -524,7 +794,7 @@ export function DocumentView({ explorationId, title }: DocumentViewProps) {
             {sortedBlocks.map((block) => (
               <div
                 key={block.id}
-                className={`bg-card rounded-lg p-4 shadow-sm border border-border transition-all duration-500 ${
+                className={`bg-card rounded-lg p-4 shadow-sm border border-border transition-all duration-500 group ${
                   newBlockIds.has(block.id) 
                     ? sortOrder === 'reverse_chrono' 
                       ? 'animate-slide-in-top ring-2 ring-primary ring-opacity-50' 
@@ -532,7 +802,7 @@ export function DocumentView({ explorationId, title }: DocumentViewProps) {
                     : ''
                 }`}
               >
-                <div className="flex items-start mb-2">
+                <div className="flex items-start justify-between mb-2">
                   <div className="flex items-center gap-2 text-sm text-gray-600">
                     <UserAvatar 
                       user={users[block.author_id] || null} 
@@ -540,6 +810,30 @@ export function DocumentView({ explorationId, title }: DocumentViewProps) {
                       isLoading={!users[block.author_id]}
                     />
                   </div>
+                  
+                  {/* Block overflow menu */}
+                  {(block.author_id === userId) && (
+                    <DropdownMenu
+                      trigger={
+                        <button className="opacity-0 group-hover:opacity-100 hover:bg-gray-100 dark:hover:bg-gray-800 p-1 rounded transition-all">
+                          <MoreHorizontal className="w-4 h-4 text-gray-500" />
+                        </button>
+                      }
+                      className="block-dropdown group"
+                    >
+                      <DropdownMenuItem onClick={() => handleEditBlock(block)}>
+                        <Edit className="w-3 h-3 mr-2" />
+                        Edit
+                      </DropdownMenuItem>
+                      <DropdownMenuItem 
+                        onClick={() => handleDeleteBlock(block.id)}
+                        destructive
+                      >
+                        <Trash2 className="w-3 h-3 mr-2" />
+                        Delete
+                      </DropdownMenuItem>
+                    </DropdownMenu>
+                  )}
                 </div>
                 
                 {/* Display context if available */}
@@ -569,18 +863,75 @@ export function DocumentView({ explorationId, title }: DocumentViewProps) {
                 {block.comments && block.comments.length > 0 && (
                   <div className="mt-4 space-y-3 border-t pt-3">
                     {block.comments.map((comment) => (
-                      <div key={comment.id} className="bg-muted rounded p-3">
-                        <div className="flex items-center gap-2 mb-2">
-                          <UserAvatar 
-                            user={users[comment.author_id] || null} 
-                            size="sm" 
-                            isLoading={!users[comment.author_id]}
-                          />
-                          <span className="text-xs text-muted-foreground">
-                            {new Date(comment.created_at).toLocaleString()}
-                          </span>
+                      <div key={comment.id} className="bg-muted rounded p-3 group">
+                        <div className="flex items-center justify-between mb-2">
+                          <div className="flex items-center gap-2">
+                            <UserAvatar 
+                              user={users[comment.author_id] || null} 
+                              size="sm" 
+                              isLoading={!users[comment.author_id]}
+                            />
+                            <span className="text-xs text-muted-foreground">
+                              {new Date(comment.created_at).toLocaleString()}
+                            </span>
+                          </div>
+                          
+                          {/* Comment overflow menu */}
+                          {comment.author_id === userId && (
+                            <DropdownMenu
+                              trigger={
+                                <button className="opacity-0 group-hover:opacity-100 hover:bg-gray-200 dark:hover:bg-gray-700 p-1 rounded transition-all">
+                                  <MoreHorizontal className="w-3 h-3 text-gray-500" />
+                                </button>
+                              }
+                            >
+                              <DropdownMenuItem onClick={() => handleEditComment(comment)}>
+                                <Edit className="w-3 h-3 mr-2" />
+                                Edit
+                              </DropdownMenuItem>
+                              <DropdownMenuItem 
+                                onClick={() => handleDeleteComment(comment.id)}
+                                destructive
+                              >
+                                <Trash2 className="w-3 h-3 mr-2" />
+                                Delete
+                              </DropdownMenuItem>
+                            </DropdownMenu>
+                          )}
                         </div>
-                        <p className="text-sm text-foreground">{comment.content}</p>
+                        
+                        {editingComment === comment.id ? (
+                          <div className="space-y-2">
+                            <textarea
+                              value={editCommentContent}
+                              onChange={(e) => setEditCommentContent(e.target.value)}
+                              className="w-full p-2 text-sm bg-background border border-border rounded-md resize-none focus:outline-none focus:ring-2 focus:ring-primary"
+                              rows={2}
+                              autoFocus
+                            />
+                            <div className="flex gap-2">
+                              <Button 
+                                size="sm" 
+                                onClick={() => handleSaveComment(comment.id)}
+                                disabled={!editCommentContent.trim()}
+                              >
+                                Save
+                              </Button>
+                              <Button 
+                                size="sm" 
+                                variant="outline"
+                                onClick={() => {
+                                  setEditingComment(null)
+                                  setEditCommentContent('')
+                                }}
+                              >
+                                Cancel
+                              </Button>
+                            </div>
+                          </div>
+                        ) : (
+                          <p className="text-sm text-foreground">{comment.content}</p>
+                        )}
                       </div>
                     ))}
                   </div>
@@ -624,6 +975,97 @@ export function DocumentView({ explorationId, title }: DocumentViewProps) {
           </div>
         )}
       </div>
+      
+      {/* Block Edit Modal */}
+      {editingBlock && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center">
+          {/* Backdrop */}
+          <div 
+            className="absolute inset-0 bg-black bg-opacity-50" 
+            onClick={() => {
+              setEditingBlock(null)
+              setEditBlockContent('')
+              setEditBlockContext('')
+            }}
+          />
+          
+          {/* Modal */}
+          <div className="relative bg-white dark:bg-gray-900 shadow-xl p-6 w-full max-w-2xl mx-4 max-h-[80vh] flex flex-col">
+            <div className="flex items-center justify-between mb-4">
+              <h2 className="text-xl font-bold">Edit Block</h2>
+              <Button 
+                variant="ghost" 
+                size="sm" 
+                onClick={() => {
+                  setEditingBlock(null)
+                  setEditBlockContent('')
+                  setEditBlockContext('')
+                }}
+              >
+                <X className="w-4 h-4" />
+              </Button>
+            </div>
+
+            {/* Context input field */}
+            <div className="mb-4">
+              <label htmlFor="edit-context" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                What question/comment triggered this response?
+              </label>
+              <textarea
+                id="edit-context"
+                value={editBlockContext}
+                onChange={(e) => setEditBlockContext(e.target.value)}
+                placeholder="Enter the question or comment that led to this response..."
+                className="w-full p-3 bg-card text-foreground border border-border resize-none focus:outline-none focus:ring-2 focus:ring-primary placeholder:text-muted-foreground"
+                rows={2}
+              />
+            </div>
+
+            <div className="flex-1 overflow-y-auto mb-4">
+              <textarea
+                value={editBlockContent}
+                onChange={(e) => setEditBlockContent(e.target.value)}
+                className="w-full h-full min-h-[300px] p-4 bg-card text-foreground border border-border focus:outline-none focus:border-gray-400 resize-none"
+                placeholder="Edit your block content..."
+              />
+            </div>
+
+            <div className="flex gap-3">
+              <Button
+                variant="outline"
+                onClick={() => {
+                  setEditingBlock(null)
+                  setEditBlockContent('')
+                  setEditBlockContext('')
+                }}
+                className="flex-1"
+              >
+                Cancel
+              </Button>
+              
+              <Button
+                onClick={handleSaveBlock}
+                className="flex-1"
+                disabled={!editBlockContent.trim()}
+              >
+                Save Changes
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Confirmation Dialog */}
+      <ConfirmationDialog
+        isOpen={confirmDialog.isOpen}
+        onClose={() => setConfirmDialog(prev => ({ ...prev, isOpen: false }))}
+        onConfirm={confirmDialog.onConfirm}
+        title={confirmDialog.title}
+        message={confirmDialog.message}
+        confirmText="Delete"
+        destructive
+        loading={confirmDialog.loading}
+      />
     </div>
   )
 } 

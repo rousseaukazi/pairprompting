@@ -92,6 +92,12 @@
   @apply bg-blue-200/60 text-blue-900;
 }
 
+/* Citation hover styles */
+.citation-hover:hover .citation-tooltip {
+  opacity: 1;
+  visibility: visible;
+}
+
 /* Smooth transition for selection indicator */
 .bg-blue-50 {
   transition: background-color 0.2s ease-in-out;
