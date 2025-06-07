@@ -457,134 +457,229 @@ export function ChatPanel({ explorationId, onHighlight }: ChatPanelProps) {
           })
         }
         
-        // Check which elements contain highlighted text
-        const highlightedElements = new Set<Element>()
-        
         console.log(`Bubble ${bubbleIndex} has ${textNodes.length} text nodes`)
         
-        // Check each text node for highlight
-        textNodes.forEach(({node, rect}) => {
-          // Sample multiple points across the text node
-          const samples: number[][] = []
-          const step = 3
+        // Get the original message content
+        const messageIndex = parseInt(bubble.getAttribute('data-index') || '0')
+        const originalMessage = messages[messageIndex]
+        if (originalMessage && originalMessage.role === 'assistant') {
+          // Get the full content
+          const fullContent = originalMessage.content
           
-          for (let x = rect.left; x <= rect.right; x += step) {
-            for (let y = rect.top; y <= rect.bottom; y += step) {
-              samples.push([x, y])
+          // Track which character positions in the original content are highlighted
+          const highlightedPositions = new Set<number>()
+          
+          // Check each text node for highlight
+          textNodes.forEach(({node, rect, text}) => {
+            // Sample multiple points across the text node
+            const samples: number[][] = []
+            const step = 3
+            
+            for (let x = rect.left; x <= rect.right; x += step) {
+              for (let y = rect.top; y <= rect.bottom; y += step) {
+                samples.push([x, y])
+              }
             }
-          }
-          
-          // Check if any sample point has highlight
-          for (const [x, y] of samples) {
-            const pixelData = offscreenCtx.getImageData(Math.floor(x * dpr), Math.floor(y * dpr), 1, 1).data
-            if (pixelData[3] > 0) {
-              console.log(`Found highlight at ${x}, ${y} with alpha ${pixelData[3]}`)
-              // This text node is highlighted, find its parent block element
-              let parent = node.parentElement
-              while (parent && parent !== contentElement) {
-                // Look for block-level elements
-                if (['P', 'H1', 'H2', 'H3', 'H4', 'H5', 'H6', 'LI', 'BLOCKQUOTE', 'PRE', 'DIV', 'SPAN'].includes(parent.tagName)) {
-                  highlightedElements.add(parent)
-                  console.log(`Added highlighted element: ${parent.tagName}`)
-                  break
+            
+            // Check if any sample point has highlight
+            let isHighlighted = false
+            for (const [x, y] of samples) {
+              const pixelData = offscreenCtx.getImageData(Math.floor(x * dpr), Math.floor(y * dpr), 1, 1).data
+              if (pixelData[3] > 0) {
+                isHighlighted = true
+                break
+              }
+            }
+            
+            if (isHighlighted) {
+              console.log(`Highlighted text node: "${text}"`)
+              
+              // Find all positions of this text in the full content
+              let searchStart = 0
+              let position = fullContent.indexOf(text, searchStart)
+              
+              while (position !== -1) {
+                // Mark all character positions in this range as highlighted
+                for (let i = position; i < position + text.length; i++) {
+                  highlightedPositions.add(i)
                 }
-                parent = parent.parentElement
+                
+                searchStart = position + 1
+                position = fullContent.indexOf(text, searchStart)
               }
-              break
             }
-          }
-        })
-        
-        console.log(`Bubble ${bubbleIndex} has ${highlightedElements.size} highlighted elements`)
-        
-        // Now extract the markdown content from highlighted elements
-        if (highlightedElements.size > 0) {
-          console.log(`Found ${highlightedElements.size} highlighted elements in bubble ${bubbleIndex}`)
+          })
           
-          // Get the original message content
-          const messageIndex = parseInt(bubble.getAttribute('data-index') || '0')
-          const originalMessage = messages[messageIndex]
-          if (originalMessage && originalMessage.role === 'assistant') {
-            // Track which message indices have highlighted content
+          console.log(`Total highlighted character positions: ${highlightedPositions.size}`)
+          
+          // Only proceed if we actually found highlighted content
+          if (highlightedPositions.size > 0) {
+            // NOW track this message index as having highlighted content
             highlightedMessageIndices.push(messageIndex)
-            
-            // Get the full content and split into lines
-            const fullContent = originalMessage.content
-            const lines = fullContent.split('\n')
-            console.log('Original content lines:', lines)
-            
-            const selectedLineIndices = new Set<number>()
-            
-            // For each highlighted element, find which lines it corresponds to
-            highlightedElements.forEach(element => {
-              const elementText = element.textContent?.trim() || ''
-              if (!elementText) return
+
+            // Function to find all sentences in the content
+            const findAllSentences = (text: string): Array<{start: number, end: number, text: string}> => {
+              const sentences: Array<{start: number, end: number, text: string}> = []
               
-              console.log('Looking for highlighted text:', elementText)
+              // First, let's handle the text character by character to find sentence boundaries
+              let currentSentenceStart = 0
+              let i = 0
               
-              // Test case for debugging
-              if (elementText.toLowerCase().includes('this is a bold line')) {
-                console.log('TEST CASE: Found "this is a bold line"')
-                lines.forEach((line, idx) => {
-                  console.log(`Line ${idx}: "${line}"`)
-                })
-              }
-              
-              // Check each line to see if it contains this highlighted text
-              lines.forEach((line, index) => {
-                // Simplify the line for comparison (just trim whitespace)
-                const plainLine = line
-                  .replace(/\[(\d+)\](\([^)]+\))?/g, '[$1]') // Simplify citations
-                  .trim()
+              while (i < text.length) {
+                const char = text[i]
                 
-                const normalizedElement = elementText.replace(/\s+/g, ' ').trim().toLowerCase()
-                const normalizedPlain = plainLine.replace(/\s+/g, ' ').trim().toLowerCase()
-                
-                // If this line contains the highlighted text, include it
-                if (normalizedPlain && normalizedElement) {
-                  // Check for exact match first
-                  if (normalizedPlain === normalizedElement) {
-                    console.log(`Line ${index} exact match: "${line}"`)
-                    selectedLineIndices.add(index)
-                  }
-                  // Then check for contains
-                  else if (normalizedPlain.includes(normalizedElement) || 
-                           normalizedElement.includes(normalizedPlain)) {
-                    console.log(`Line ${index} partial match: "${line}"`)
-                    selectedLineIndices.add(index)
-                  }
-                  // Check word-by-word overlap for longer texts
-                  else if (normalizedElement.length > 10) {
-                    const elementWords = normalizedElement.split(' ')
-                    const lineWords = normalizedPlain.split(' ')
-                    const commonWords = elementWords.filter(word => lineWords.includes(word))
+                // Check if this is a sentence-ending punctuation
+                if (char === '.' || char === '!' || char === '?') {
+                  // Look ahead to see if this is really the end of a sentence
+                  let isEndOfSentence = false
+                  
+                  // Check what comes after
+                  if (i === text.length - 1) {
+                    // End of text
+                    isEndOfSentence = true
+                  } else if (i + 1 < text.length) {
+                    const nextChar = text[i + 1]
+                    const nextNextChar = i + 2 < text.length ? text[i + 2] : ''
                     
-                    if (commonWords.length >= Math.min(3, elementWords.length * 0.7)) {
-                      console.log(`Line ${index} word match: "${line}"`)
-                      selectedLineIndices.add(index)
+                    // Check for common cases where period is NOT end of sentence
+                    if (char === '.' && i > 0 && /\d/.test(text[i - 1]) && /\d/.test(nextChar)) {
+                      // Decimal number like 3.14
+                      isEndOfSentence = false
+                    } else if (char === '.' && /[a-z]/.test(nextChar)) {
+                      // Possible abbreviation if followed by lowercase
+                      isEndOfSentence = false
+                    } else if (nextChar === ' ' && /[A-Z]/.test(nextNextChar)) {
+                      // Space followed by capital letter - likely new sentence
+                      isEndOfSentence = true
+                    } else if (nextChar === '\n') {
+                      // Line break after punctuation
+                      isEndOfSentence = true
+                    } else if (nextChar === ' ' || nextChar === '"' || nextChar === ')' || nextChar === ']') {
+                      // Space or closing quote/bracket after punctuation
+                      isEndOfSentence = true
                     }
                   }
+                  
+                  if (isEndOfSentence) {
+                    // Extract the sentence
+                    const sentenceEnd = i + 1
+                    const sentenceText = text.substring(currentSentenceStart, sentenceEnd).trim()
+                    
+                    if (sentenceText) {
+                      sentences.push({
+                        start: currentSentenceStart,
+                        end: sentenceEnd,
+                        text: sentenceText
+                      })
+                      console.log(`Found sentence: "${sentenceText}"`)
+                    }
+                    
+                    // Move to start of next sentence
+                    currentSentenceStart = sentenceEnd
+                    
+                    // Skip any whitespace after the sentence
+                    while (currentSentenceStart < text.length && /\s/.test(text[currentSentenceStart])) {
+                      currentSentenceStart++
+                    }
+                    i = currentSentenceStart - 1 // -1 because loop will increment
+                  }
+                } 
+                // Also check for double line breaks as sentence boundaries
+                else if (char === '\n' && i + 1 < text.length && text[i + 1] === '\n') {
+                  // Double line break - treat as sentence boundary
+                  const sentenceText = text.substring(currentSentenceStart, i).trim()
+                  
+                  if (sentenceText) {
+                    sentences.push({
+                      start: currentSentenceStart,
+                      end: i,
+                      text: sentenceText
+                    })
+                    console.log(`Found sentence (paragraph break): "${sentenceText}"`)
+                  }
+                  
+                  // Skip the line breaks
+                  currentSentenceStart = i + 2
+                  while (currentSentenceStart < text.length && /\s/.test(text[currentSentenceStart])) {
+                    currentSentenceStart++
+                  }
+                  i = currentSentenceStart - 1
                 }
-              })
+                
+                i++
+              }
+              
+              // Handle any remaining text as a sentence
+              if (currentSentenceStart < text.length) {
+                const remainingText = text.substring(currentSentenceStart).trim()
+                if (remainingText) {
+                  sentences.push({
+                    start: currentSentenceStart,
+                    end: text.length,
+                    text: remainingText
+                  })
+                  console.log(`Found sentence (end of text): "${remainingText}"`)
+                }
+              }
+              
+              return sentences
+            }
+            
+            // Now find all sentences that contain highlighted characters
+            const sentences = findAllSentences(fullContent)
+            const selectedSentences = new Set<string>()
+            
+            sentences.forEach(sentence => {
+              // Check if this sentence contains any highlighted characters
+              let containsHighlight = false
+              for (let pos = sentence.start; pos < sentence.end; pos++) {
+                if (highlightedPositions.has(pos)) {
+                  containsHighlight = true
+                  break
+                }
+              }
+              
+              if (containsHighlight) {
+                console.log(`Sentence contains highlight: "${sentence.text}"`)
+                selectedSentences.add(sentence.text)
+              }
             })
             
-            // Build the selected content from the original lines with formatting preserved
-            const sortedIndices = Array.from(selectedLineIndices).sort((a, b) => a - b)
+            // Sort sentences by their appearance order
+            const orderedSentences = Array.from(selectedSentences).sort((a, b) => {
+              const aIndex = fullContent.indexOf(a)
+              const bIndex = fullContent.indexOf(b)
+              return aIndex - bIndex
+            })
             
-            if (sortedIndices.length > 0) {
+            console.log('Final selected sentences:', orderedSentences)
+            
+            // Add to selected content preserving paragraph structure
+            if (orderedSentences.length > 0) {
               if (selectedContent) {
                 selectedContent += '\n\n'
               }
               
-              // Include all lines from first to last selected to maintain context
-              const firstIndex = sortedIndices[0]
-              const lastIndex = sortedIndices[sortedIndices.length - 1]
-              
-              console.log(`Selecting lines ${firstIndex} to ${lastIndex}`)
-              
-              for (let i = firstIndex; i <= lastIndex; i++) {
-                if (i > firstIndex) selectedContent += '\n'
-                selectedContent += lines[i]
+              // Instead of joining with spaces, preserve the original structure
+              // by finding the positions of sentences and including the text between them
+              if (orderedSentences.length === 1) {
+                selectedContent += orderedSentences[0]
+              } else {
+                // Find the start and end positions of all selected sentences
+                let minStart = fullContent.length
+                let maxEnd = 0
+                
+                orderedSentences.forEach(sentenceText => {
+                  const start = fullContent.indexOf(sentenceText)
+                  if (start !== -1) {
+                    minStart = Math.min(minStart, start)
+                    maxEnd = Math.max(maxEnd, start + sentenceText.length)
+                  }
+                })
+                
+                // Extract the content from first sentence to last sentence
+                // This preserves newlines and formatting between sentences
+                selectedContent += fullContent.substring(minStart, maxEnd).trim()
               }
             }
           }
