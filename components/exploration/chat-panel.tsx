@@ -517,135 +517,127 @@ export function ChatPanel({ explorationId, onHighlight }: ChatPanelProps) {
             // NOW track this message index as having highlighted content
             highlightedMessageIndices.push(messageIndex)
 
-            // Function to find all sentences in the content
-            const findAllSentences = (text: string): Array<{start: number, end: number, text: string}> => {
-              const sentences: Array<{start: number, end: number, text: string}> = []
+            // Helper function to extract sentence around a position range
+            function extractSentenceAroundPosition(text: string, startPos: number, endPos: number): string | null {
+              // Find sentence start - look backwards for clear sentence boundary
+              let sentenceStart = 0
               
-              // First, let's handle the text character by character to find sentence boundaries
-              let currentSentenceStart = 0
-              let i = 0
-              
-              while (i < text.length) {
+              // Look backwards from startPos to find sentence boundary
+              for (let i = startPos - 1; i >= 0; i--) {
                 const char = text[i]
+                const nextChar = i + 1 < text.length ? text[i + 1] : ''
+                const nextNextChar = i + 2 < text.length ? text[i + 2] : ''
                 
-                // Check if this is a sentence-ending punctuation
-                if (char === '.' || char === '!' || char === '?') {
-                  // Look ahead to see if this is really the end of a sentence
-                  let isEndOfSentence = false
-                  
-                  // Check what comes after
-                  if (i === text.length - 1) {
-                    // End of text
-                    isEndOfSentence = true
-                  } else if (i + 1 < text.length) {
-                    const nextChar = text[i + 1]
-                    const nextNextChar = i + 2 < text.length ? text[i + 2] : ''
-                    
-                    // Check for common cases where period is NOT end of sentence
-                    if (char === '.' && i > 0 && /\d/.test(text[i - 1]) && /\d/.test(nextChar)) {
-                      // Decimal number like 3.14
-                      isEndOfSentence = false
-                    } else if (char === '.' && /[a-z]/.test(nextChar)) {
-                      // Possible abbreviation if followed by lowercase
-                      isEndOfSentence = false
-                    } else if (nextChar === ' ' && /[A-Z]/.test(nextNextChar)) {
-                      // Space followed by capital letter - likely new sentence
-                      isEndOfSentence = true
-                    } else if (nextChar === '\n') {
-                      // Line break after punctuation
-                      isEndOfSentence = true
-                    } else if (nextChar === ' ' || nextChar === '"' || nextChar === ')' || nextChar === ']') {
-                      // Space or closing quote/bracket after punctuation
-                      isEndOfSentence = true
-                    }
+                // Look for sentence endings: . ! ? followed by space/newline and capital letter
+                if ((char === '.' || char === '!' || char === '?')) {
+                  // Skip decimal numbers
+                  if (char === '.' && i > 0 && /\d/.test(text[i - 1]) && /\d/.test(nextChar)) {
+                    continue
                   }
                   
-                  if (isEndOfSentence) {
-                    // Extract the sentence
-                    const sentenceEnd = i + 1
-                    const sentenceText = text.substring(currentSentenceStart, sentenceEnd).trim()
-                    
-                    if (sentenceText) {
-                      sentences.push({
-                        start: currentSentenceStart,
-                        end: sentenceEnd,
-                        text: sentenceText
-                      })
-                      console.log(`Found sentence: "${sentenceText}"`)
-                    }
-                    
-                    // Move to start of next sentence
-                    currentSentenceStart = sentenceEnd
-                    
-                    // Skip any whitespace after the sentence
-                    while (currentSentenceStart < text.length && /\s/.test(text[currentSentenceStart])) {
-                      currentSentenceStart++
-                    }
-                    i = currentSentenceStart - 1 // -1 because loop will increment
-                  }
-                } 
-                // Also check for double line breaks as sentence boundaries
-                else if (char === '\n' && i + 1 < text.length && text[i + 1] === '\n') {
-                  // Double line break - treat as sentence boundary
-                  const sentenceText = text.substring(currentSentenceStart, i).trim()
-                  
-                  if (sentenceText) {
-                    sentences.push({
-                      start: currentSentenceStart,
-                      end: i,
-                      text: sentenceText
-                    })
-                    console.log(`Found sentence (paragraph break): "${sentenceText}"`)
+                  // Skip abbreviations  
+                  if (char === '.' && /[a-z]/.test(nextChar)) {
+                    continue
                   }
                   
-                  // Skip the line breaks
-                  currentSentenceStart = i + 2
-                  while (currentSentenceStart < text.length && /\s/.test(text[currentSentenceStart])) {
-                    currentSentenceStart++
+                  // This is a sentence boundary if followed by space/newline and uppercase
+                  if ((nextChar === ' ' || nextChar === '\n') && /[A-Z0-9]/.test(nextNextChar)) {
+                    sentenceStart = i + 1
+                    break
                   }
-                  i = currentSentenceStart - 1
+                  
+                  // Also break on double newlines (paragraph boundaries)
+                  if (nextChar === '\n' && nextNextChar === '\n') {
+                    sentenceStart = i + 1
+                    break
+                  }
                 }
                 
-                i++
-              }
-              
-              // Handle any remaining text as a sentence
-              if (currentSentenceStart < text.length) {
-                const remainingText = text.substring(currentSentenceStart).trim()
-                if (remainingText) {
-                  sentences.push({
-                    start: currentSentenceStart,
-                    end: text.length,
-                    text: remainingText
-                  })
-                  console.log(`Found sentence (end of text): "${remainingText}"`)
-                }
-              }
-              
-              return sentences
-            }
-            
-            // Now find all sentences that contain highlighted characters
-            const sentences = findAllSentences(fullContent)
-            const selectedSentences = new Set<string>()
-            
-            sentences.forEach(sentence => {
-              // Check if this sentence contains any highlighted characters
-              let containsHighlight = false
-              for (let pos = sentence.start; pos < sentence.end; pos++) {
-                if (highlightedPositions.has(pos)) {
-                  containsHighlight = true
+                // Break on double newlines (paragraph boundaries)
+                if (char === '\n' && nextChar === '\n') {
+                  sentenceStart = i + 2
                   break
                 }
               }
               
-              if (containsHighlight) {
-                console.log(`Sentence contains highlight: "${sentence.text}"`)
-                selectedSentences.add(sentence.text)
+              // Skip whitespace at sentence start
+              while (sentenceStart < text.length && /\s/.test(text[sentenceStart])) {
+                sentenceStart++
               }
-            })
+              
+              // Find sentence end - look forwards for clear sentence boundary
+              let sentenceEnd = text.length
+              
+              // Look forwards from endPos to find sentence boundary
+              for (let i = endPos; i < text.length; i++) {
+                const char = text[i]
+                const nextChar = i + 1 < text.length ? text[i + 1] : ''
+                
+                // Look for sentence endings: . ! ?
+                if (char === '.' || char === '!' || char === '?') {
+                  // Skip decimal numbers
+                  if (char === '.' && i > 0 && /\d/.test(text[i - 1]) && /\d/.test(nextChar)) {
+                    continue
+                  }
+                  
+                  // Skip abbreviations
+                  if (char === '.' && /[a-z]/.test(nextChar)) {
+                    continue
+                  }
+                  
+                  // This is a sentence ending
+                  sentenceEnd = i + 1
+                  break
+                }
+                
+                // Also break on double newlines
+                if (char === '\n' && nextChar === '\n') {
+                  sentenceEnd = i
+                  break
+                }
+              }
+              
+              // Extract and return the sentence
+              const sentence = text.substring(sentenceStart, sentenceEnd).trim()
+              return sentence || null
+            }
+
+            // Find the minimal sentences containing highlighted text
+            const selectedSentences = new Set<string>()
             
-            // Sort sentences by their appearance order
+            // Get all highlighted character positions as an array
+            const highlightedArray = Array.from(highlightedPositions).sort((a, b) => a - b)
+            
+            // For each contiguous block of highlighted text, find the sentence it belongs to
+            let blockStart = highlightedArray[0]
+            let blockEnd = highlightedArray[0]
+            
+            for (let i = 1; i < highlightedArray.length; i++) {
+              const pos = highlightedArray[i]
+              if (pos <= blockEnd + 10) { // If positions are close (within 10 chars), treat as same block
+                blockEnd = pos
+              } else {
+                // Process the previous block
+                const sentence = extractSentenceAroundPosition(fullContent, blockStart, blockEnd)
+                if (sentence) {
+                  console.log(`Found sentence for block ${blockStart}-${blockEnd}: "${sentence}"`)
+                  selectedSentences.add(sentence)
+                }
+                
+                // Start a new block
+                blockStart = pos
+                blockEnd = pos
+              }
+            }
+            
+            // Process the last block
+            const sentence = extractSentenceAroundPosition(fullContent, blockStart, blockEnd)
+            if (sentence) {
+              console.log(`Found sentence for block ${blockStart}-${blockEnd}: "${sentence}"`)
+              selectedSentences.add(sentence)
+            }
+            
+            // Sort sentences by their appearance order in the original text
             const orderedSentences = Array.from(selectedSentences).sort((a, b) => {
               const aIndex = fullContent.indexOf(a)
               const bIndex = fullContent.indexOf(b)
@@ -654,33 +646,14 @@ export function ChatPanel({ explorationId, onHighlight }: ChatPanelProps) {
             
             console.log('Final selected sentences:', orderedSentences)
             
-            // Add to selected content preserving paragraph structure
+            // Add to selected content
             if (orderedSentences.length > 0) {
               if (selectedContent) {
                 selectedContent += '\n\n'
               }
               
-              // Instead of joining with spaces, preserve the original structure
-              // by finding the positions of sentences and including the text between them
-              if (orderedSentences.length === 1) {
-                selectedContent += orderedSentences[0]
-              } else {
-                // Find the start and end positions of all selected sentences
-                let minStart = fullContent.length
-                let maxEnd = 0
-                
-                orderedSentences.forEach(sentenceText => {
-                  const start = fullContent.indexOf(sentenceText)
-                  if (start !== -1) {
-                    minStart = Math.min(minStart, start)
-                    maxEnd = Math.max(maxEnd, start + sentenceText.length)
-                  }
-                })
-                
-                // Extract the content from first sentence to last sentence
-                // This preserves newlines and formatting between sentences
-                selectedContent += fullContent.substring(minStart, maxEnd).trim()
-              }
+              // Join sentences with newline to preserve formatting
+              selectedContent += orderedSentences.join('\n')
             }
           }
         }
